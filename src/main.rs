@@ -19,9 +19,11 @@ fn main() {
 
 fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
     let mut buffer: Vec<u8> = vec![0; 1024];
-    let bytes_read = stream.read(&mut buffer)?;
+    let bytes_read = stream.read_to_end(&mut buffer)?;
     buffer.truncate(bytes_read);
     dbg!(String::from_utf8_lossy(&buffer));
+    loop {
+    }
     for command in buffer.split(|&byte| byte == b'\n') {
         let mut command = String::from_utf8_lossy(&command);
         command.to_mut().make_ascii_lowercase();

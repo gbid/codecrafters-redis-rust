@@ -18,7 +18,10 @@ fn main() {
 }
 
 fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
-    let mut buffer = Vec::new();
+    let mut buffer: Vec<u8> = Vec::new();
     stream.read(&mut buffer)?;
-    stream.write_all(b"+PONG\r\n")
+    for _command in buffer.split(|&byte| byte == b'\n') {
+        stream.write_all(b"+PONG\r\n")?
+    }
+    Ok(())
 }

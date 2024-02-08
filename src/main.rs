@@ -1,5 +1,6 @@
 use std::net::{ TcpListener, TcpStream };
 use std::io::{ Result, Read, Write };
+use std::thread;
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
@@ -8,7 +9,9 @@ fn main() {
         match stream {
             Ok(mut stream) => {
                 println!("accepted new connection");
-                handle_client_connection(&mut stream).unwrap();
+                thread::spawn(move || {
+                    handle_client_connection(&mut stream).unwrap();
+                });
             }
             Err(e) => {
                 println!("error: {}", e);

@@ -27,7 +27,7 @@ fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
         command.to_mut().make_ascii_lowercase();
         dbg!(&command);
         if command.contains("ping") {
-            stream.write_all(b"+PONG\r\n")?
+            stream.write_all(b"+PONG\r\n")?;
         }
     }
     Ok(())

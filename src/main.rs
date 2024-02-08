@@ -18,8 +18,10 @@ fn main() {
 }
 
 fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
-    let mut buffer: Vec<u8> = Vec::new();
-    stream.read(&mut buffer)?;
+    let mut buffer: [u8; 1024] = [0; 1024];
+    let _bytes_read = stream.read(&mut buffer)?;
+    let foo = String::from_utf8_lossy(&buffer);
+    dbg!(foo);
     for _command in buffer.split(|&byte| byte == b'\n') {
         stream.write_all(b"+PONG\r\n")?
     }

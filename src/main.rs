@@ -18,13 +18,13 @@ fn main() {
 }
 
 fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
-    let mut buffer: [u8; 1024] = [0; 1024];
-    let _bytes_read = stream.read(&mut buffer)?;
-    let foo = String::from_utf8_lossy(&buffer);
-    dbg!(foo);
+    let mut buffer: Vec<u8> = vec![0; 1024];
+    let bytes_read = stream.read(&mut buffer)?;
+    buffer.truncate(bytes_read);
+    dbg!(String::from_utf8_lossy(&buffer));
     for command in buffer.split(|&byte| byte == b'\n') {
         dbg!(String::from_utf8_lossy(&command));
-        if !command.is_empty() && command == b"ping" {
+        if !command.is_empty() {
             stream.write_all(b"+PONG\r\n")?
         }
     }

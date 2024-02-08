@@ -23,8 +23,9 @@ fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
     buffer.truncate(bytes_read);
     dbg!(String::from_utf8_lossy(&buffer));
     for command in buffer.split(|&byte| byte == b'\n') {
-        dbg!(String::from_utf8_lossy(&command));
-        if !command.is_empty() {
+        let command = String::from_utf8_lossy(&command);
+        dbg!(&command);
+        if !command.is_empty() && command.contains("ping") {
             stream.write_all(b"+PONG\r\n")?
         }
     }

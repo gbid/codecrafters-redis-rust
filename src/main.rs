@@ -90,12 +90,12 @@ fn lines(bytes: &[u8]) -> Vec<&[u8]> {
     let mut start = 0;
     let crlf = b"\r\n";
     while let Some(position) = bytes[start..].windows(crlf.len()).position(|pair| pair == crlf) {
-        dbg!(start);
-        dbg!(position);
+        // dbg!(start);
+        // dbg!(position);
         let absolute_position = position + start;
-        dbg!(absolute_position);
+        // dbg!(absolute_position);
         // dbg!(String::from_utf8(bytes[start..].to_vec()).unwrap());
-        dbg!(String::from_utf8(bytes[start..absolute_position].to_vec()).unwrap());
+        // dbg!(String::from_utf8(bytes[start..absolute_position].to_vec()).unwrap());
         parts.push(&bytes[start..absolute_position]);
         start = absolute_position + 2;
     }
@@ -125,7 +125,7 @@ fn parse_command(raw: &[u8]) -> Result<Command> {
     dbg!(&kind);
     let num_of_arguments = num - 1;
     let mut arguments = Vec::with_capacity(num_of_arguments);
-    for i in 0..num_of_arguments {
+    for _i in 0..num_of_arguments {
         let (arg_length, _) = parse_argument_length(lines.next().unwrap())?;
         dbg!(arg_length);
         let (arg, _) = parse_command_argument(lines.next().unwrap(), arg_length)?;

@@ -158,7 +158,7 @@ fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u
         dbg!(&command);
         match command.kind {
             CommandKind::Ping => {
-                let response = b"+PING\r\n";
+                let response = b"+PONG\r\n";
                 stream.write_all(response)?;
             },
             CommandKind::Echo => {

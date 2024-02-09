@@ -66,6 +66,7 @@ enum CommandKind {
     Get,
 }
 
+#[derive(Debug)]
 struct Command {
     kind: CommandKind,
     arguments: Vec<Vec<u8>>,
@@ -154,6 +155,7 @@ fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u
         dbg!(String::from_utf8(buffer.clone()).unwrap());
         let command = parse_command(&buffer)?;
         let mut map = map.lock().unwrap();
+        dbg!(&command);
         match command.kind {
             CommandKind::Ping => {
                 let response = b"+PING\r\n";

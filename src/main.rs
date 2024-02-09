@@ -62,7 +62,7 @@ enum CommandKind {
 
 struct Command {
     kind: CommandKind,
-    arguments: Vec<String>
+    arguments: Vec<Vec<u8>>,
 }
 
 fn parse_command_kind(raw: &[u8], length: usize) -> Result<(CommandKind, &[u8])> {
@@ -80,9 +80,9 @@ fn parse_command_kind(raw: &[u8], length: usize) -> Result<(CommandKind, &[u8])>
     }
 }
 
-fn parse_command_argument(raw: &[u8], length: usize) -> Result<(String, &[u8])> {
+fn parse_command_argument(raw: &[u8], length: usize) -> Result<(Vec<u8>, &[u8])> {
     // TODO: raw.len() < length
-    Ok((String::from_utf8(raw[0..length].to_vec()).unwrap(), &raw[length..]))
+    Ok((raw[0..length].to_vec(), &raw[length..]))
 }
 
 fn lines(bytes: &[u8]) -> Vec<&[u8]> {
@@ -139,6 +139,19 @@ fn parse_command(raw: &[u8]) -> Result<Command> {
     Ok(command)
 }
 
+fn encode_as_bulk_string(bytes: &[u8]) -> Vec<u8> {
+    let mut result = Vec::new();
+    result.push(b'$');
+    for ch in bytes.len().to_string().chars() {
+        result.push(ch.try_into().unwrap());
+    }
+    result.push(b'\r');
+    result.push(b'\n');
+    result.extend_from_slice(bytes);
+    result.push(b'\r');
+    result.push(b'\n');
+    result
+}
 fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
     loop {
         let mut buffer: Vec<u8> = vec![0; 1024];
@@ -152,7 +165,9 @@ fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
             },
             CommandKind::Echo => {
                 for arg in command.arguments {
-                    stream.write_all(arg.as_bytes())?;
+                    let msg = encode_as_bulk_string(&arg);
+                    dbg!(String::from_utf8(msg.to_vec()).unwrap());
+                    stream.write_all(&msg)?;
                 }
             }
         }

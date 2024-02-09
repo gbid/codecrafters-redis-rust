@@ -1,6 +1,7 @@
 use std::net::{ TcpListener, TcpStream };
 use std::io::{ Result, Read, Write };
 use std::thread;
+use std::str::FromStr;
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
@@ -20,18 +21,139 @@ fn main() {
     }
 }
 
+fn parse_number(raw: &[u8]) -> Result<(usize, &[u8])> {
+    dbg!(String::from_utf8(raw.to_vec()).unwrap());
+    let mut end = 0;
+    while let Some(byte) = raw.get(end) {
+        if byte.is_ascii_digit() {
+            end += 1;
+        }
+        else {
+            break;
+        }
+    }
+    // TODO: end == 0 ?
+    let string = String::from_utf8(raw[0..end].to_vec()).unwrap();
+    dbg!(&string);
+    let number_of_arguments = usize::from_str(&string).unwrap();
+    Ok((number_of_arguments, &raw[end..]))
+}
+
+fn parse_number_of_arguments(raw: &[u8]) -> Result<(usize, &[u8])> {
+    if raw[0] != b'*' {
+        panic!("Argument number does not start with asterix *");
+    }
+    parse_number(&raw[1..])
+}
+
+fn parse_argument_length(raw: &[u8]) -> Result<(usize, &[u8])> {
+    dbg!(String::from_utf8(raw.to_vec()).unwrap());
+    if raw[0] != b'$' {
+        panic!("Argument length does not start with dollar sign $");
+    }
+    parse_number(&raw[1..])
+}
+
+#[derive(Debug)]
+enum CommandKind {
+    Ping,
+    Echo,
+}
+
+struct Command {
+    kind: CommandKind,
+    arguments: Vec<String>
+}
+
+fn parse_command_kind(raw: &[u8], length: usize) -> Result<(CommandKind, &[u8])> {
+    if raw.len() < length {
+        panic!("CommandKind length larger than byte slice length")
+    }
+
+    let command_str = &raw[0..length].to_ascii_lowercase();
+    let command_slice = &command_str[..]; // Convert Vec<u8> to &[u8]
+
+    match command_slice {
+        b"ping" => Ok((CommandKind::Ping, &raw[length..])),
+        b"echo" => Ok((CommandKind::Echo, &raw[length..])),
+        _ => panic!("Unkown CommandKind"),
+    }
+}
+
+fn parse_command_argument(raw: &[u8], length: usize) -> Result<(String, &[u8])> {
+    // TODO: raw.len() < length
+    Ok((String::from_utf8(raw[0..length].to_vec()).unwrap(), &raw[length..]))
+}
+
+fn lines(bytes: &[u8]) -> Vec<&[u8]> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let crlf = b"\r\n";
+    while let Some(position) = bytes[start..].windows(crlf.len()).position(|pair| pair == crlf) {
+        dbg!(start);
+        dbg!(position);
+        let absolute_position = position + start;
+        dbg!(absolute_position);
+        // dbg!(String::from_utf8(bytes[start..].to_vec()).unwrap());
+        dbg!(String::from_utf8(bytes[start..absolute_position].to_vec()).unwrap());
+        parts.push(&bytes[start..absolute_position]);
+        start = absolute_position + 2;
+    }
+    parts
+    // parts = \r\nf\r\n\r\n;
+    // start = 0;
+    // position = 0;
+    // parts.push(bytes[0..0]);
+    // start = 0 + 0  + 2 = 2;
+    // bytes[start..] = [f\r\n\r\n];
+    // position = 1;
+    // parts.push(bytes[2..3] = b"f");
+    // start = 2 + 1 + 2 = 5;
+    // bytes[start..] = [\r\n]
+}
+fn parse_command(raw: &[u8]) -> Result<Command> {
+    let my_lines = lines(raw);
+    for line in my_lines.iter() {
+        dbg!(String::from_utf8(line.to_vec()).unwrap());
+    }
+    let mut lines = my_lines.iter();
+    let (num, _) = parse_number_of_arguments(lines.next().unwrap())?;
+    dbg!(num);
+    let (kind_length, _) = parse_argument_length(lines.next().unwrap())?;
+    dbg!(kind_length);
+    let (kind, _) = parse_command_kind(lines.next().unwrap(), kind_length)?;
+    dbg!(&kind);
+    let num_of_arguments = num - 1;
+    let mut arguments = Vec::with_capacity(num_of_arguments);
+    for i in 0..num_of_arguments {
+        let (arg_length, _) = parse_argument_length(lines.next().unwrap())?;
+        dbg!(arg_length);
+        let (arg, _) = parse_command_argument(lines.next().unwrap(), arg_length)?;
+        dbg!(&arg);
+        arguments.push(arg);
+    }
+    let command = Command {
+        kind,
+        arguments,
+    };
+    Ok(command)
+}
+
 fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
     loop {
         let mut buffer: Vec<u8> = vec![0; 1024];
         let bytes_read = stream.read(&mut buffer)?;
         buffer.truncate(bytes_read);
-        dbg!(String::from_utf8_lossy(&buffer));
-        for command in buffer.split(|&byte| byte == b'\n') {
-            let mut command = String::from_utf8_lossy(&command);
-            command.to_mut().make_ascii_lowercase();
-            dbg!(&command);
-            if command.contains("ping") {
+        dbg!(String::from_utf8(buffer.clone()).unwrap());
+        let command = parse_command(&buffer)?;
+        match command.kind {
+            CommandKind::Ping => {
                 stream.write_all(b"+PONG\r\n")?;
+            },
+            CommandKind::Echo => {
+                for arg in command.arguments {
+                    stream.write_all(arg.as_bytes())?;
+                }
             }
         }
     }

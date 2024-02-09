@@ -2,16 +2,20 @@ use std::net::{ TcpListener, TcpStream };
 use std::io::{ Result, Read, Write };
 use std::thread;
 use std::str::FromStr;
+use std::collections::HashMap;
+use std::sync::{ Arc, Mutex };
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-
+    // let mut map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+    let map = Arc::new(Mutex::new(HashMap::new()));
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
                 println!("accepted new connection");
+                let map_arc = Arc::clone(&map);
                 thread::spawn(move || {
-                    handle_client_connection(&mut stream).unwrap();
+                    handle_client_connection(&mut stream, map_arc).unwrap();
                 });
             }
             Err(e) => {
@@ -58,6 +62,8 @@ fn parse_argument_length(raw: &[u8]) -> Result<(usize, &[u8])> {
 enum CommandKind {
     Ping,
     Echo,
+    Set,
+    Get,
 }
 
 struct Command {
@@ -76,6 +82,8 @@ fn parse_command_kind(raw: &[u8], length: usize) -> Result<(CommandKind, &[u8])>
     match command_slice {
         b"ping" => Ok((CommandKind::Ping, &raw[length..])),
         b"echo" => Ok((CommandKind::Echo, &raw[length..])),
+        b"set" => Ok((CommandKind::Set, &raw[length..])),
+        b"get" => Ok((CommandKind::Get, &raw[length..])),
         _ => panic!("Unkown CommandKind"),
     }
 }
@@ -90,27 +98,13 @@ fn lines(bytes: &[u8]) -> Vec<&[u8]> {
     let mut start = 0;
     let crlf = b"\r\n";
     while let Some(position) = bytes[start..].windows(crlf.len()).position(|pair| pair == crlf) {
-        // dbg!(start);
-        // dbg!(position);
         let absolute_position = position + start;
-        // dbg!(absolute_position);
-        // dbg!(String::from_utf8(bytes[start..].to_vec()).unwrap());
-        // dbg!(String::from_utf8(bytes[start..absolute_position].to_vec()).unwrap());
         parts.push(&bytes[start..absolute_position]);
         start = absolute_position + 2;
     }
     parts
-    // parts = \r\nf\r\n\r\n;
-    // start = 0;
-    // position = 0;
-    // parts.push(bytes[0..0]);
-    // start = 0 + 0  + 2 = 2;
-    // bytes[start..] = [f\r\n\r\n];
-    // position = 1;
-    // parts.push(bytes[2..3] = b"f");
-    // start = 2 + 1 + 2 = 5;
-    // bytes[start..] = [\r\n]
 }
+
 fn parse_command(raw: &[u8]) -> Result<Command> {
     let my_lines = lines(raw);
     for line in my_lines.iter() {
@@ -129,7 +123,7 @@ fn parse_command(raw: &[u8]) -> Result<Command> {
         let (arg_length, _) = parse_argument_length(lines.next().unwrap())?;
         dbg!(arg_length);
         let (arg, _) = parse_command_argument(lines.next().unwrap(), arg_length)?;
-        dbg!(&arg);
+        dbg!(String::from_utf8(arg.clone()).unwrap());
         arguments.push(arg);
     }
     let command = Command {
@@ -152,23 +146,43 @@ fn encode_as_bulk_string(bytes: &[u8]) -> Vec<u8> {
     result.push(b'\n');
     result
 }
-fn handle_client_connection(stream: &mut TcpStream) -> Result<()> {
+fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>) -> Result<()> {
     loop {
         let mut buffer: Vec<u8> = vec![0; 1024];
         let bytes_read = stream.read(&mut buffer)?;
         buffer.truncate(bytes_read);
         dbg!(String::from_utf8(buffer.clone()).unwrap());
         let command = parse_command(&buffer)?;
+        let mut map = map.lock().unwrap();
         match command.kind {
             CommandKind::Ping => {
-                stream.write_all(b"+PONG\r\n")?;
+                let response = b"+PING\r\n";
+                stream.write_all(response)?;
             },
             CommandKind::Echo => {
                 for arg in command.arguments {
-                    let msg = encode_as_bulk_string(&arg);
-                    dbg!(String::from_utf8(msg.to_vec()).unwrap());
-                    stream.write_all(&msg)?;
+                    let response = encode_as_bulk_string(&arg);
+                    dbg!(String::from_utf8(response.to_vec()).unwrap());
+                    stream.write_all(&response)?;
                 }
+            }
+            CommandKind::Get => {
+                for arg in command.arguments {
+                    let nil = b"(nil)";
+                    let response =
+                        map
+                        .get(&arg)
+                        .map_or(nil as &[u8], Vec::as_slice);
+                    let response = encode_as_bulk_string(response);
+                    stream.write_all(&response)?;
+                }
+            }
+            CommandKind::Set => {
+                let key = &command.arguments[0];
+                let value = &command.arguments[1];
+                map.insert(key.clone(), value.clone());
+                let response = b"+OK\r\n";
+                stream.write_all(response)?;
             }
         }
     }

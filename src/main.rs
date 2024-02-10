@@ -254,7 +254,7 @@ struct SetData {
 
 #[derive(Debug)]
 enum SetOption {
-    Px(usize),
+    Px(u64),
 }
 impl SetOption {
     fn parse_from(args: &[RespVal]) -> Result<SetOption> {
@@ -262,10 +262,11 @@ impl SetOption {
             return Err(Error::new(ErrorKind::InvalidInput, "No Options given."))
         }
         match &args[0] {
-            RespVal::BulkString(arg_bytes) if arg_bytes.clone().to_ascii_lowercase().as_slice() == b"px" => {
-                match args[1] {
-                    RespVal::UnsignedInteger(n) => {
-                        Ok(SetOption::Px(n))
+            RespVal::BulkString(arg1) if arg1.clone().to_ascii_lowercase().as_slice() == b"px" => {
+                match &args[1] {
+                    RespVal::BulkString(arg2) => {
+                        let arg2 = String::from_utf8(arg2.to_vec()).unwrap();
+                        Ok(SetOption::Px(u64::from_str(&arg2).unwrap()))
                     },
                     _ => {
                         return Err(Error::new(ErrorKind::InvalidInput, "Option 'px' was not followed by unsigned integer"))

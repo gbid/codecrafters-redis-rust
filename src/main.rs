@@ -311,16 +311,18 @@ fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u
                 stream.write_all(&response)?;
             },
             RedisCommand::Get(key_bytes) => {
-                let nil = b"(nil)";
+                let null = b"_\r\n";
                 let value: Option<Vec<u8>> = map
                     .get(&key_bytes)
                     .and_then(|value| {
                         let my_value = value.clone();
                         my_value.move_out_data_if_valid()
                     });
-                let response = value.unwrap_or_else(|| nil.to_vec());
-                let response = encode_as_bulk_string(&response);
-                stream.write_all(&response)?;
+                let value_bulk_string = value.map(|data| encode_as_bulk_string(&data));
+                match value_bulk_string {
+                    Some(val) => stream.write_all(&val)?,
+                    None => stream.write_all(null)?,
+                };
             },
             RedisCommand::Set(SetData {
                 key,

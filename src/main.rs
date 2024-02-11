@@ -311,7 +311,7 @@ fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u
                 stream.write_all(&response)?;
             },
             RedisCommand::Get(key_bytes) => {
-                let null = b"_\r\n";
+                let null = b"$-1\r\n";
                 let value: Option<Vec<u8>> = map
                     .get(&key_bytes)
                     .and_then(|value| {

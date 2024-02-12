@@ -1,5 +1,5 @@
 use std::net::{ TcpListener, TcpStream };
-use std::io::{ Result, Read, Write, Error, ErrorKind };
+use std::io::{ self, Read, Write };
 use std::thread;
 use std::str::FromStr;
 use std::collections::HashMap;
@@ -7,7 +7,28 @@ use std::sync::{ Arc, Mutex };
 use std::time::{ SystemTime, Duration };
 use std::ops::Add;
 
-fn main() {
+#[derive(Debug)]
+enum Error {
+    Io(io::Error),
+    ParseError(String),
+    ValidationError(String),
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
+impl From<std::string::FromUtf8Error> for Error {
+    fn from(err: std::string::FromUtf8Error) -> Error {
+        Error::ValidationError(format!("Invalid UTF-8 sequence: {}", err))
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Error {
+        Error::Io(err)
+    }
+}
+
+fn main() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
     // let mut map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     let map = Arc::new(Mutex::new(HashMap::new()));
@@ -25,6 +46,7 @@ fn main() {
             }
         }
     }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -60,7 +82,7 @@ const CRLF: [u8; 2] = [b'\r',b'\n'];
 impl RespVal {
     fn parse_integer(raw: &[u8]) -> Result<(RespVal, &[u8])> {
         if raw[0] != b':' {
-            panic!("Integer does not start with colon sign ':'");
+            return Err(Error::ParseError("Integer does not start with colon sign ':'".to_string()));
         }
         match raw[1] {
             b'+' => {
@@ -69,41 +91,42 @@ impl RespVal {
             },
             b'-' => {
                 let (num, raw_tail) = RespVal::parse_number(&raw[2..])?;
-                let negative_num: isize = -1 * isize::try_from(num).unwrap();
+                let negative_num: isize = -1 * isize::try_from(num)
+                    .map_err(|_| Error::ParseError(format!("Integer value is too large, max is {}", isize::MAX)))?;
                 Ok((RespVal::SignedInteger(negative_num), raw_tail))
             },
             _ => {
-                panic!("Integer does not have sign prefix '+' or '-'");
+                Err(Error::ParseError("Integer does not have sign prefix '+' or '-'.".to_string()))
             },
         }
     }
 
     fn parse_bulk_string(raw: &[u8]) -> Result<(RespVal, &[u8])> {
         if raw[0] != b'$' {
-            panic!("Argument length does not start with dollar sign $");
+            return Err(Error::ParseError("Argument length does not start with dollar sign '$'".to_string()));
         }
         let (length, raw_tail) = RespVal::parse_number(&raw[1..])?;
-        
-        let raw_tail = raw_tail.strip_prefix(CRLF.as_ref()).unwrap();
+        let raw_tail = raw_tail.strip_prefix(CRLF.as_ref())
+            .ok_or_else(|| Error::ParseError("Error parsing Bulk String: length was not followed by CRLF sequence \r\n".to_string()))?;
         let bulk_string = RespVal::BulkString(raw_tail[0..length].to_vec());
-        let raw_tail = raw_tail[length..].strip_prefix(CRLF.as_ref()).unwrap();
+        let raw_tail = raw_tail[length..].strip_prefix(CRLF.as_ref())
+            .ok_or_else(|| Error::ParseError("Error parsing Bulk String: string was not followed by CRLF sequence \r\n".to_string()))?;
         Ok((bulk_string, &raw_tail))
     }
 
     fn parse_resp_value(raw: &[u8]) -> Result<(RespVal, &[u8])> {
-        let val = match raw[0] {
-            b'*' => RespVal::parse_array(raw)?,
-            b'$' => RespVal::parse_bulk_string(raw)?,
-            b':' => RespVal::parse_integer(raw)?,
-            b'+' => RespVal::parse_simple_string(raw)?,
-            _ => panic!("Unkown RESP type"),
-        };
-        Ok(val)
+        match raw[0] {
+            b'*' => Ok(RespVal::parse_array(raw)?),
+            b'$' => Ok(RespVal::parse_bulk_string(raw)?),
+            b':' => Ok(RespVal::parse_integer(raw)?),
+            b'+' => Ok(RespVal::parse_simple_string(raw)?),
+            _ => Err(Error::ParseError(format!("Leading byte {} does not correspond to a RESP type", raw[0])))
+        }
     }
 
     fn parse_simple_string(raw: &[u8]) -> Result<(RespVal, &[u8])> {
         if raw[0] != b'+' {
-            panic!("Simple String does not start with +");
+            return Err(Error::ParseError("Simple String did not start with +".to_string()));
         }
         let mut simple_string_content: Vec<u8> = Vec::new();
         let mut end = 0;
@@ -115,14 +138,16 @@ impl RespVal {
                         break;
                     }
                     else {
-                        panic!("Carriage return byte \r without succeeding \n appeared within Simple String, which is not allowed");
+                        return Err(Error::ParseError("Carriage return byte \r without succeeding \n appeared within Simple String, which is not allowed".to_string()));
                     }
                 },
                 Some(b'\n') => {
-                    panic!("Newline byte \n appeared within Simple String, which is not allowed");
+                    return Err(Error::ParseError("Newline byte \n appeared within Simple String, which is not allowed".to_string()));
                 },
                 Some(&allowed_byte) => simple_string_content.push(allowed_byte),
-                None => panic!("Simple string did not end with CRLF sequence \r\n"),
+                None => {
+                    return Err(Error::ParseError("Simple string did not end with CRLF sequence \r\n".to_string()));
+                }
             }
             end += 1;
         }
@@ -132,10 +157,11 @@ impl RespVal {
 
     fn parse_array(raw: &[u8]) -> Result<(RespVal, &[u8])> {
         if raw[0] != b'*' {
-            panic!("Array does not start with *");
+            return Err(Error::ParseError("Array did not start with *".to_string()));
         }
         let (length, raw_tail) = RespVal::parse_number(&raw[1..])?;
-        let mut raw_tail = raw_tail.strip_prefix(CRLF.as_ref()).unwrap();
+        let mut raw_tail = raw_tail.strip_prefix(CRLF.as_ref())
+            .ok_or_else(|| Error::ParseError("Error parsing Array: length was not followed by CRLF sequence \r\n".to_string()))?;
 
         let mut array = Vec::with_capacity(length);
         for _i in 0..length  {
@@ -148,7 +174,7 @@ impl RespVal {
     }
 
     fn parse_number(raw: &[u8]) -> Result<(usize, &[u8])> {
-        dbg!(String::from_utf8(raw.to_vec()).unwrap());
+        dbg!(String::from_utf8_lossy(raw));
         let mut end = 0;
         while let Some(byte) = raw.get(end) {
             if byte.is_ascii_digit() {
@@ -159,10 +185,11 @@ impl RespVal {
             }
         }
         // TODO: end == 0 ?
-        let string = String::from_utf8(raw[0..end].to_vec()).unwrap();
+        let string = String::from_utf8(raw[0..end].to_vec())?;
         dbg!(&string);
-        let number_of_arguments = usize::from_str(&string).unwrap();
-        Ok((number_of_arguments, &raw[end..]))
+        let number = usize::from_str(&string)
+            .map_err(|err| Error::ParseError(format!("Error parsing number: {}", err)))?;
+        Ok((number, &raw[end..]))
     }
 }
 
@@ -176,7 +203,7 @@ enum RedisCommand {
 
 impl RedisCommand {
     fn parse_command(raw: &[u8]) -> Result<RedisCommand> {
-        let parts: RespVal  = RespVal::parse_array(raw)?.0;
+        let (parts, _): (RespVal, _)  = RespVal::parse_array(raw)?;
         match parts {
             RespVal::Array(vals) => {
                 match vals.get(0) {
@@ -188,30 +215,32 @@ impl RedisCommand {
                                     Ok(RedisCommand::Echo(arg_bytes.clone()))
                                 }
                                 else {
-                                    panic!("ECHO requires an argument. This argument must be a BulkString.")
+                                    Err(Error::ValidationError("ECHO requires an argument. This argument must be a BulkString.".to_string()))
                                 }
                             },
                             b"set" => {
                                 let args = &vals[1..];
                                 RedisCommand::parse_set_args(args)
-                            }
+                            },
                             b"get" => {
                                 let args = &vals[1..];
                                 RedisCommand::parse_get_args(args)
-                            }
-                            _ => panic!("Unkown Command"),
+                            },
+                            _ =>
+                                 Err(Error::ValidationError(format!("Unknown Command {}", String::from_utf8_lossy(command_bytes)))),
                         }
                     }
-                    _ => panic!("No Command provided as Bulk String"),
+                    _ =>
+                        Err(Error::ValidationError("No command provided as Bulk String".to_string())),
                 }
             },
-            _ => panic!("RespVal::parse_array always returns RespVal::Array"),
+            _ => Err(Error::ValidationError(format!("Can parse Redis Command only from RESP Array, but got {:?}", parts))),
         }
     }
 
     fn parse_set_args(args: &[RespVal]) -> Result<RedisCommand> {
         if args.len() < 2 {
-            panic!("SET command requires at least two arguments");
+            return Err(Error::ValidationError("SET command requires at least two arguments".to_string()));
         }
         match (&args[0], &args[1]) {
             (RespVal::BulkString(key), RespVal::BulkString(value)) => {
@@ -228,7 +257,7 @@ impl RedisCommand {
                 Ok(RedisCommand::Set(set_data))
             },
             _ => {
-                panic!("The first two arguments of SET must be Bulk Strings");
+                return Err(Error::ValidationError("The first two arguments of SET must be Bulk Strings".to_string()));
             },
         }
     }
@@ -239,7 +268,7 @@ impl RedisCommand {
                 Ok(RedisCommand::Get(key.clone()))
             },
             _ => {
-                panic!("GET command requires a Bulk String as first argument.")
+                Err(Error::ValidationError("GET command requires a Bulk String as first argument.".to_string()))
             },
         }
     }
@@ -256,47 +285,47 @@ struct SetData {
 enum SetOption {
     Px(u64),
 }
+
 impl SetOption {
     fn parse_from(args: &[RespVal]) -> Result<SetOption> {
-        if args.len() == 0 {
-            return Err(Error::new(ErrorKind::InvalidInput, "No Options given."))
+        if args.is_empty() {
+            return Err(Error::ValidationError("No Option given".to_string()));
         }
         match &args[0] {
-            RespVal::BulkString(arg1) if arg1.clone().to_ascii_lowercase().as_slice() == b"px" => {
+            RespVal::BulkString(arg1) if arg1.eq_ignore_ascii_case(b"px") => {
+                let px_arg_error = Error::ValidationError("Option 'px' was not followed by unsigned integer".to_string());
                 match &args[1] {
                     RespVal::BulkString(arg2) => {
-                        let arg2 = String::from_utf8(arg2.to_vec()).unwrap();
-                        Ok(SetOption::Px(u64::from_str(&arg2).unwrap()))
+                        let arg2 = String::from_utf8(arg2.to_vec())?;
+                        let period_of_validity =
+                            u64::from_str(&arg2)
+                            .map_err(|_| px_arg_error)?;
+                        return Ok(SetOption::Px(period_of_validity));
                     },
-                    _ => {
-                        return Err(Error::new(ErrorKind::InvalidInput, "Option 'px' was not followed by unsigned integer"))
-                    },
+                    _ => return Err(px_arg_error),
                 }
             },
-            _ => return Err(Error::new(ErrorKind::InvalidInput, "Provided unkown Option for SET command"))
+            _ => return Err(Error::ValidationError("Provided unknown Option for SET command".to_string())),
         }
     }
 }
 
 fn encode_as_bulk_string(bytes: &[u8]) -> Vec<u8> {
-    let mut result = Vec::new();
-    result.push(b'$');
-    for ch in bytes.len().to_string().chars() {
-        result.push(ch.try_into().unwrap());
-    }
-    result.push(b'\r');
-    result.push(b'\n');
+    // 15 comes from approximation of max byte length of string representation of bytes.len()
+    let mut result = Vec::with_capacity(bytes.len() + 15);
+    write!(result, "${}\r\n", bytes.len()).expect("Failed to write length prefix");
     result.extend_from_slice(bytes);
-    result.push(b'\r');
-    result.push(b'\n');
+    result.extend_from_slice(b"\r\n");
+
     result
 }
+
 fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u8>, Value>>>) -> Result<()> {
     loop {
         let mut buffer: Vec<u8> = vec![0; 1024];
         let bytes_read = stream.read(&mut buffer)?;
         buffer.truncate(bytes_read);
-        dbg!(String::from_utf8(buffer.clone()).unwrap());
+        dbg!(String::from_utf8_lossy(&buffer));
         let command: RedisCommand = RedisCommand::parse_command(&buffer)?;
         let mut map = map.lock().unwrap();
         dbg!(&command);
@@ -307,7 +336,7 @@ fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u
             },
             RedisCommand::Echo(bytes) => {
                 let response = encode_as_bulk_string(&bytes);
-                dbg!(String::from_utf8(response.to_vec()).unwrap());
+                dbg!(String::from_utf8_lossy(&response));
                 stream.write_all(&response)?;
             },
             RedisCommand::Get(key_bytes) => {
@@ -331,14 +360,11 @@ fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u
             }) => {
                 let expiration_time = match options.get(0) {
                     Some(SetOption::Px(period_of_validity)) => {
-                        let period_of_validity: u64 = (*period_of_validity).try_into().unwrap();
-                        let period_of_validity = Duration::from_millis(period_of_validity);
+                        let period_of_validity = Duration::from_millis(*period_of_validity);
                         let expiration_time = SystemTime::now().add(period_of_validity);
                         Some(expiration_time)
                     }
-                    _ => {
-                        None
-                    }
+                    _ => None
                 };
                 let value = Value {
                     data: value,

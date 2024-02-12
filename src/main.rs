@@ -6,12 +6,14 @@ use std::collections::HashMap;
 use std::sync::{ Arc, Mutex };
 use std::time::{ SystemTime, Duration };
 use std::ops::Add;
+use std::fmt;
 
 #[derive(Debug)]
 enum Error {
     Io(io::Error),
     ParseError(String),
     ValidationError(String),
+    StateError(String),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -28,9 +30,19 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Io(io_err) => write!(f, "IO error: {}", io_err),
+            Error::ParseError(reason) => write!(f, "Parse error: {}", reason),
+            Error::ValidationError(reason) => write!(f, "Validation error: {}", reason),
+            Error::StateError(reason) => write!(f, "State error: {}", reason),
+        }
+    }
+}
+
 fn main() -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-    // let mut map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+    let listener = TcpListener::bind("127.0.0.1:6379")?;
     let map = Arc::new(Mutex::new(HashMap::new()));
     for stream in listener.incoming() {
         match stream {
@@ -38,11 +50,13 @@ fn main() -> Result<()> {
                 println!("accepted new connection");
                 let map_arc = Arc::clone(&map);
                 thread::spawn(move || {
-                    handle_client_connection(&mut stream, map_arc).unwrap();
+                    if let Err(e) = handle_client_connection(&mut stream, map_arc) {
+                        eprintln!("Failed to handle client connection: {}", e);
+                    }
                 });
             }
             Err(e) => {
-                println!("error: {}", e);
+                eprintln!("Failed to establish TcpConnection: {}", e);
             }
         }
     }
@@ -91,7 +105,7 @@ impl RespVal {
             },
             b'-' => {
                 let (num, raw_tail) = RespVal::parse_number(&raw[2..])?;
-                let negative_num: isize = -1 * isize::try_from(num)
+                let negative_num: isize = -isize::try_from(num)
                     .map_err(|_| Error::ParseError(format!("Integer value is too large, max is {}", isize::MAX)))?;
                 Ok((RespVal::SignedInteger(negative_num), raw_tail))
             },
@@ -165,7 +179,7 @@ impl RespVal {
 
         let mut array = Vec::with_capacity(length);
         for _i in 0..length  {
-            let (val, new_raw_tail) = RespVal::parse_resp_value(&raw_tail)?;
+            let (val, new_raw_tail) = RespVal::parse_resp_value(raw_tail)?;
             array.push(val);
             raw_tail = new_raw_tail;
         }
@@ -184,7 +198,6 @@ impl RespVal {
                 break;
             }
         }
-        // TODO: end == 0 ?
         let string = String::from_utf8(raw[0..end].to_vec())?;
         dbg!(&string);
         let number = usize::from_str(&string)
@@ -256,9 +269,7 @@ impl RedisCommand {
                 };
                 Ok(RedisCommand::Set(set_data))
             },
-            _ => {
-                return Err(Error::ValidationError("The first two arguments of SET must be Bulk Strings".to_string()));
-            },
+            _ => Err(Error::ValidationError("The first two arguments of SET must be Bulk Strings".to_string()))
         }
     }
 
@@ -300,12 +311,12 @@ impl SetOption {
                         let period_of_validity =
                             u64::from_str(&arg2)
                             .map_err(|_| px_arg_error)?;
-                        return Ok(SetOption::Px(period_of_validity));
+                        Ok(SetOption::Px(period_of_validity))
                     },
-                    _ => return Err(px_arg_error),
+                    _ => Err(px_arg_error),
                 }
             },
-            _ => return Err(Error::ValidationError("Provided unknown Option for SET command".to_string())),
+            _ => Err(Error::ValidationError("Provided unknown Option for SET command".to_string())),
         }
     }
 }
@@ -327,7 +338,8 @@ fn handle_client_connection(stream: &mut TcpStream, map: Arc<Mutex<HashMap<Vec<u
         buffer.truncate(bytes_read);
         dbg!(String::from_utf8_lossy(&buffer));
         let command: RedisCommand = RedisCommand::parse_command(&buffer)?;
-        let mut map = map.lock().unwrap();
+        let mut map = map.lock()
+            .map_err(|_| Error::StateError("Mutex lock failed".to_string()))?;
         dbg!(&command);
         match command {
             RedisCommand::Ping => {

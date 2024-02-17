@@ -7,10 +7,21 @@ use std::ops::Add;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
+use clap::Parser;
+use std::path::PathBuf;
 
 mod command;
 mod error;
 mod resp;
+
+#[derive(Parser, Debug, Clone)]
+#[command(version, about, long_about = None)]
+pub struct Config {
+    #[arg(long)]
+    dir: PathBuf,
+    #[arg(long)]
+    dbfilename: PathBuf,
+}
 
 #[derive(Clone)]
 struct Value {
@@ -34,6 +45,7 @@ const CRLF: [u8; 2] = [b'\r', b'\n'];
 fn handle_client_connection(
     stream: &mut TcpStream,
     map: Arc<Mutex<HashMap<Vec<u8>, Value>>>,
+    config: Config,
 ) -> Result<()> {
     loop {
         let mut buffer: Vec<u8> = vec![0; 1024];
@@ -88,20 +100,35 @@ fn handle_client_connection(
                 let response = b"+OK\r\n";
                 stream.write_all(response)?;
             }
+            RedisCommand::ConfigGet(key) => {
+                let val = match key.as_slice() {
+                    b"dir" => &config.dir,
+                    b"dbfilename" => &config.dbfilename,
+                    _ => return Err(Error::ValidationError("Wrong argument to CONFIG GET command".to_string())),
+                };
+                use resp::RespVal;
+                let key = resp::encode_as_bulk_string(&key);
+                let key = RespVal::parse_resp_value(&key)?.0;
+                let val = resp::encode_as_bulk_string(val.to_str().unwrap().as_bytes());
+                let val = RespVal::parse_resp_value(&val)?.0;
+                let response = resp::encode(&RespVal::Array(vec![key, val]));
+                stream.write_all(&response)?;
+            }
         }
     }
 }
 
-pub fn start_redis_server(socket_addr: SocketAddr) {
-    let listener = TcpListener::bind(socket_addr).unwrap();
+pub fn start_redis_server(socket_addr: SocketAddr, config: Config) {
+    let listener = TcpListener::bind(socket_addr).expect("Failed to bind socket address");
     let map = Arc::new(Mutex::new(HashMap::new()));
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
                 println!("accepted new connection");
                 let map_arc = Arc::clone(&map);
+                let my_config = config.clone();
                 thread::spawn(move || {
-                    if let Err(e) = handle_client_connection(&mut stream, map_arc) {
+                    if let Err(e) = handle_client_connection(&mut stream, map_arc, my_config) {
                         eprintln!("Failed to handle client connection: {}", e);
                     }
                 });

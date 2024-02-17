@@ -62,7 +62,7 @@ impl RespVal {
         Ok((bulk_string, &raw_tail))
     }
 
-    fn parse_resp_value(raw: &[u8]) -> Result<(RespVal, &[u8])> {
+    pub fn parse_resp_value(raw: &[u8]) -> Result<(RespVal, &[u8])> {
         match raw[0] {
             b'*' => Ok(RespVal::parse_array(raw)?),
             b'$' => Ok(RespVal::parse_bulk_string(raw)?),
@@ -149,6 +149,24 @@ impl RespVal {
             .map_err(|err| Error::ParseError(format!("Error parsing number: {}", err)))?;
         Ok((number, &raw[end..]))
     }
+}
+
+pub fn encode(val: &RespVal) -> Vec<u8> {
+    match val {
+        RespVal::BulkString(bytes) => encode_as_bulk_string(bytes),
+        RespVal::Array(vals) => encode_as_array(vals),
+        RespVal::SimpleString(_bytes) => todo!(),
+        RespVal::UnsignedInteger(_u) => todo!(),
+        RespVal::SignedInteger(_i) => todo!(),
+    }
+}
+
+pub fn encode_as_array(vals: &[RespVal]) -> Vec<u8> {
+    let mut result_bytes = Vec::new();
+    write!(result_bytes, "*{}\r\n", vals.len()).expect("Failed to write to Vec.");
+    let inner_bytes: Vec<u8> = vals.iter().flat_map(encode).collect();
+    result_bytes.extend_from_slice(&inner_bytes);
+    result_bytes
 }
 
 pub fn encode_as_bulk_string(bytes: &[u8]) -> Vec<u8> {

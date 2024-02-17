@@ -8,6 +8,7 @@ pub enum RedisCommand {
     Echo(Vec<u8>),
     Set(SetData),
     Get(Vec<u8>),
+    ConfigGet(Vec<u8>),
 }
 
 impl RedisCommand {
@@ -32,6 +33,10 @@ impl RedisCommand {
                         b"get" => {
                             let args = &vals[1..];
                             RedisCommand::parse_get_args(args)
+                        }
+                        b"config" => {
+                            let args = &vals[1..];
+                            RedisCommand::parse_config_args(args)
                         }
                         _ => Err(Error::ValidationError(format!(
                             "Unknown Command {}",
@@ -81,6 +86,26 @@ impl RedisCommand {
             Some(RespVal::BulkString(key)) => Ok(RedisCommand::Get(key.clone())),
             _ => Err(Error::ValidationError(
                 "GET command requires a Bulk String as first argument.".to_string(),
+            )),
+        }
+    }
+
+    fn parse_config_args(args: &[RespVal]) -> Result<RedisCommand> {
+        if args.len() < 2 {
+            return Err(Error::ValidationError(
+                "CONFIG command requires two Bulk Strings first arguments".to_string()));
+        }
+        match &args[0] {
+            RespVal::BulkString(subcommand) if subcommand.as_slice() == b"get" => {
+                match &args[1] {
+                    RespVal::BulkString(key) => Ok(RedisCommand::ConfigGet(key.clone())),
+                    _ => Err(Error::ValidationError(
+                            "CONFIG GET command requires a Bulk String as argument.".to_string(),
+                    )),
+                }
+            }
+            _ => Err(Error::ValidationError(
+                    "CONFIG command requires a Bulk String with Subcommand[get| ] as first argument.".to_string(),
             )),
         }
     }

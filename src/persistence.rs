@@ -150,7 +150,7 @@ fn parse_nonexpire_entry(bytes: &[u8]) -> Result<(Operation, &[u8])> {
     Ok((Operation::Entry(key, val), bytes))
 }
 
-fn parse_resize_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
+fn parse_resize_db(_bytes: &[u8]) -> Result<(Operation, &[u8])> {
     todo!()
 }
 
@@ -166,6 +166,7 @@ fn parse_auxiliary_field(bytes: &[u8]) -> Result<(Operation, &[u8])> {
 
 fn parse_length_prefixed_string(bytes: &[u8]) -> Result<(Vec<u8>, &[u8])> {
     let (length, bytes) = parse_length(bytes)?;
+    dbg!(length);
     let (data, bytes) = bytes.split_at(length.try_into().unwrap());
     Ok((data.to_vec(), bytes))
 }

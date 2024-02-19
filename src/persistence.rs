@@ -15,6 +15,25 @@ fn load_rdb_file(rdb_file_path: &Path) -> Result<Database> {
     todo!();
 }
 
+fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
+    // header
+    bytes = parse_magic_number(&bytes)?;
+    bytes = parse_rdb_version(&bytes)?;
+    // parts
+    let mut parts: Vec<Operation> = Vec::new();
+    while !bytes.is_empty() {
+        let (part, remaining_bytes) = parse_part(&bytes)?;
+        parts.push(part);
+        bytes = remaining_bytes;
+    }
+    let entries = parts.into_iter().filter_map(|part| match part {
+        Operation::Entry(key, val) => Some((key, val)),
+        _ => None,
+    });
+    Ok(HashMap::from_iter(entries))
+}
+
+
 fn parse_magic_number(bytes: &[u8]) -> Result<&[u8]> {
     let (magic_number, bytes) = bytes.split_at(5);
     if magic_number == b"REDIS" {
@@ -31,20 +50,6 @@ fn parse_rdb_version(bytes: &[u8]) -> Result<&[u8]> {
     } else {
         Err(Error::RdbError("Encountered Unknown RDB version".to_string()))
     }
-}
-
-fn parse_rdb(mut bytes: &[u8]) -> Result<Vec<Operation>> {
-    // header
-    bytes = parse_magic_number(&bytes)?;
-    bytes = parse_rdb_version(&bytes)?;
-    // parts
-    let mut parts: Vec<Operation> = Vec::new();
-    while !bytes.is_empty() {
-        let (op, remaining_bytes) = parse_part(&bytes)?;
-        parts.push(op);
-        bytes = remaining_bytes;
-    }
-    Ok(parts)
 }
 
 #[derive(Debug, Copy, Clone)]

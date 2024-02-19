@@ -86,10 +86,26 @@ enum Operation {
     Aux(Vec<u8>, Vec<u8>),
 }
 
+use std::fmt;
+struct HexSlice<'a>(&'a [u8]);
+impl<'a> fmt::Debug for HexSlice<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (count, byte) in self.0.iter().enumerate() {
+            if count != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{:02X}", byte)?;
+        }
+        write!(f, "]")
+    }
+}
+
 fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-    println!("{:02X} ", bytes[0]);
     let op = Opcode::from_byte(bytes[0]);
-    match op {
+    dbg!(&op);
+    dbg!(HexSlice(bytes));
+    let operation = match op {
         Ok(Opcode::Eof) => Ok((Operation::Eof, &bytes[1..])),
         Ok(Opcode::SelectDb) => parse_select_db(&bytes[1..]),
         Ok(Opcode::ExpireTime) => parse_expire_time(&bytes[1..]),
@@ -98,10 +114,11 @@ fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         Ok(Opcode::Aux) => parse_auxiliary_field(&bytes[1..]),
         Err(_) => parse_nonexpire_entry(bytes),
     }
+    dbg!(&operation);
+    operation
 }
 
 fn parse_select_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-    println!("{:02X} ", bytes[0]);
     let (db_number, bytes) = parse_length(bytes)?;
     Ok((Operation::SelectDB(db_number), bytes))
 }
@@ -158,10 +175,6 @@ fn parse_value(bytes: &[u8]) -> Result<(Vec<u8>, &[u8])> {
 }
 
 fn parse_length(bytes: &[u8]) -> Result<(u32, &[u8])> {
-    println!();
-    for &byte in bytes.iter() {
-        println!("{:02X} ", byte);
-    }
     let first_byte = bytes[0] & 0b00111111;
     let msb = bytes[0] >> 6;
     match msb {

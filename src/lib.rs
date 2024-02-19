@@ -7,7 +7,7 @@ use std::ops::Add;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
-// use clap::Parser;
+use clap::Parser;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
@@ -16,14 +16,13 @@ mod error;
 mod resp;
 mod persistence;
 
-// #[derive(Parser, Debug, Clone)]
-// #[command(version, about, long_about = None)]
-#[derive(Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
+#[command(version, about, long_about = None)]
 pub struct Config {
-    // #[arg(long)]
-    pub dir: PathBuf,
-    // #[arg(long)]
-    pub dbfilename: PathBuf,
+    #[arg(long)]
+    dir: PathBuf,
+    #[arg(long)]
+    dbfilename: PathBuf,
 }
 
 #[derive(Clone)]

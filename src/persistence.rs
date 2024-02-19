@@ -184,7 +184,12 @@ fn parse_length(bytes: &[u8]) -> Result<(u32, &[u8])> {
         0 => Ok((first_byte.into(), &bytes[1..])),
         1 => Ok((u16::from_be_bytes([first_byte, bytes[1]]).into(), &bytes[2..])),
         2 => Ok((u32::from_be_bytes(bytes[1..5].try_into().unwrap()), &bytes[5..])),
-        3 => todo!("Special format not yet implemented"),
+        3 => match first_byte {
+            0 => Ok((bytes[1].into(), &bytes[2..])),
+            1 => Ok((u16::from_be_bytes(bytes[1..3].try_into().unwrap()).into(), &bytes[3..])),
+            2 => Ok((u32::from_be_bytes(bytes[1..5].try_into().unwrap()), &bytes[5..])),
+            _ => Err(Error::RdbError("String encoded integer has unkown prefix in last 6 bits of first byte.'".to_string()))
+        },
         _ => unreachable!(),
     }
 }

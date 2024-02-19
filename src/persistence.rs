@@ -11,8 +11,8 @@ pub fn load_rdb_file(rdb_file_path: &Path) -> Result<Database> {
     let mut file = File::open(rdb_file_path)?;
     let mut bytes: Vec<u8> = vec![];
     dbg!(rdb_file_path);
-    dbg!(HexSlice(&bytes));
     file.read_to_end(&mut bytes).unwrap();
+    dbg!(HexSlice(&bytes));
     parse_rdb(&bytes)
 }
 
@@ -94,7 +94,7 @@ impl<'a> fmt::Debug for HexSlice<'a> {
             if count != 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{:02X}", byte)?;
+            write!(f, "{}", byte)?;
         }
         write!(f, "]")
     }
@@ -156,7 +156,11 @@ fn parse_resize_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
 
 fn parse_auxiliary_field(bytes: &[u8]) -> Result<(Operation, &[u8])> {
     let (key, bytes) = parse_length_prefixed_string(bytes)?;
+    dbg!(key);
+    dbg!(HexSlice(bytes));
     let (val, bytes) = parse_length_prefixed_string(bytes)?;
+    dbg!(key);
+    dbg!(HexSlice(bytes));
     Ok((Operation::Aux(key, val), bytes))
 }
 

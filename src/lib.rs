@@ -141,7 +141,11 @@ fn handle_client_connection(
 
 pub fn start_redis_server(socket_addr: SocketAddr, config: Config) {
     let listener = TcpListener::bind(socket_addr).expect("Failed to bind socket address");
-    let map = Arc::new(Mutex::new(HashMap::new()));
+    let mut full_path = config.dir.clone();
+    full_path.push(&config.dbfilename);
+    let map = persistence::load_rdb_file(&full_path)
+        .unwrap_or_else(|_| HashMap::new());
+    let map = Arc::new(Mutex::new(map));
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {

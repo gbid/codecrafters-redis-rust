@@ -7,12 +7,12 @@ use std::collections::HashMap;
 
 type Database = HashMap<Vec<u8>, Value>;
 
-fn load_rdb_file(rdb_file_path: &Path) -> Result<Database> {
+pub fn load_rdb_file(rdb_file_path: &Path) -> Result<Database> {
     let mut file = File::open(rdb_file_path)?;
     let mut bytes: Vec<u8> = vec![];
+    dbg!(rdb_file_path);
     file.read_to_end(&mut bytes).unwrap();
-    parse_rdb(&bytes)?;
-    todo!();
+    parse_rdb(&bytes)
 }
 
 fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {

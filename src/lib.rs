@@ -9,10 +9,12 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 use clap::Parser;
 use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 
 mod command;
 mod error;
 mod resp;
+mod persistence;
 
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
@@ -36,6 +38,24 @@ impl Value {
             None => Some(self.data),
             Some(expiration_time) if expiration_time > SystemTime::now() => Some(self.data),
             _ => None,
+        }
+    }
+
+    fn expiring_from_seconds(data: Vec<u8>,  seconds: u32) -> Value {
+        let expiration_time = UNIX_EPOCH + Duration::from_secs(seconds.into());
+        let expiration_time = Some(expiration_time);
+        Value {
+            data,
+            expiration_time,
+        }
+    }
+
+    fn expiring_from_millis(data: Vec<u8>, millis: u64) -> Value {
+        let expiration_time = UNIX_EPOCH + Duration::from_millis(millis);
+        let expiration_time = Some(expiration_time);
+        Value {
+            data,
+            expiration_time,
         }
     }
 }

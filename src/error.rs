@@ -7,6 +7,7 @@ pub enum Error {
     ParseError(String),
     ValidationError(String),
     StateError(String),
+    RdbError(String)
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -30,6 +31,7 @@ impl fmt::Display for Error {
             Error::ParseError(reason) => write!(f, "Parse error: {}", reason),
             Error::ValidationError(reason) => write!(f, "Validation error: {}", reason),
             Error::StateError(reason) => write!(f, "State error: {}", reason),
+            Error::RdbError(reason) => write!(f, "Rdb error: {}", reason),
         }
     }
 }

@@ -156,10 +156,10 @@ fn parse_resize_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
 
 fn parse_auxiliary_field(bytes: &[u8]) -> Result<(Operation, &[u8])> {
     let (key, bytes) = parse_length_prefixed_string(bytes)?;
-    dbg!(&key);
+    dbg!(String::from_utf8_lossy(&key));
     dbg!(HexSlice(&bytes));
     let (val, bytes) = parse_length_prefixed_string(bytes)?;
-    dbg!(&key);
+    dbg!(String::from_utf8_lossy(&key));
     dbg!(HexSlice(&bytes));
     Ok((Operation::Aux(key, val), bytes))
 }

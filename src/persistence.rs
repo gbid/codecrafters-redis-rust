@@ -87,6 +87,7 @@ enum Operation {
 }
 
 fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
+    println!("{:02X} ", bytes[0]);
     let op = Opcode::from_byte(bytes[0]);
     match op {
         Ok(Opcode::Eof) => Ok((Operation::Eof, &bytes[1..])),
@@ -100,6 +101,7 @@ fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
 }
 
 fn parse_select_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
+    println!("{:02X} ", bytes[0]);
     let (db_number, bytes) = parse_length(bytes)?;
     Ok((Operation::SelectDB(db_number), bytes))
 }
@@ -156,6 +158,10 @@ fn parse_value(bytes: &[u8]) -> Result<(Vec<u8>, &[u8])> {
 }
 
 fn parse_length(bytes: &[u8]) -> Result<(u32, &[u8])> {
+    println!();
+    for &byte in bytes.iter() {
+        println!("{:02X} ", byte);
+    }
     let first_byte = bytes[0] & 0b00111111;
     let msb = bytes[0] >> 6;
     match msb {

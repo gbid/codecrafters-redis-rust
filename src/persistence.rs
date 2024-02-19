@@ -79,6 +79,7 @@ impl Opcode {
     }
 }
 
+#[derive(Debug)]
 enum Operation {
     Eof,
     SelectDB(u32),
@@ -113,7 +114,7 @@ fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         Ok(Opcode::ResizeDb) => parse_resize_db(&bytes[1..]),
         Ok(Opcode::Aux) => parse_auxiliary_field(&bytes[1..]),
         Err(_) => parse_nonexpire_entry(bytes),
-    }
+    };
     dbg!(&operation);
     operation
 }

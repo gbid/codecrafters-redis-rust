@@ -26,7 +26,7 @@ pub struct Config {
     pub dbfilename: PathBuf,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Value {
     data: Vec<u8>,
     expiration_time: Option<SystemTime>,

@@ -11,7 +11,7 @@ pub fn load_rdb_file(rdb_file_path: &Path) -> Result<Database> {
     let mut file = File::open(rdb_file_path)?;
     let mut bytes: Vec<u8> = vec![];
     dbg!(rdb_file_path);
-    dbg!(HexSlice(bytes));
+    dbg!(HexSlice(&bytes));
     file.read_to_end(&mut bytes).unwrap();
     parse_rdb(&bytes)
 }

@@ -80,17 +80,18 @@ enum Operation {
     Eof,
     SelectDB(u32),
     Entry(Vec<u8>, Value),
+    Aux(Vec<u8>, Vec<u8>),
 }
 
 fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
     let op = Opcode::from_byte(bytes[0]);
     match op {
-        Ok(Opcode::Eof) => Ok((Operation::Eof, bytes)),
-        Ok(Opcode::SelectDb) => parse_select_db(bytes),
-        Ok(Opcode::ExpireTime) => parse_expire_time(bytes),
-        Ok(Opcode::ExpireTimeMS) => parse_expire_time_ms(bytes),
-        Ok(Opcode::ResizeDb) => parse_resize_db(bytes),
-        Ok(Opcode::Aux) => parse_auxiliary_field(bytes),
+        Ok(Opcode::Eof) => Ok((Operation::Eof, &bytes[1..])),
+        Ok(Opcode::SelectDb) => parse_select_db(&bytes[1..]),
+        Ok(Opcode::ExpireTime) => parse_expire_time(&bytes[1..]),
+        Ok(Opcode::ExpireTimeMS) => parse_expire_time_ms(&bytes[1..]),
+        Ok(Opcode::ResizeDb) => parse_resize_db(&bytes[1..]),
+        Ok(Opcode::Aux) => parse_auxiliary_field(&bytes[1..]),
         Err(_) => parse_nonexpire_entry(bytes),
     }
 }
@@ -133,7 +134,9 @@ fn parse_resize_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
 }
 
 fn parse_auxiliary_field(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-    todo!()
+    let (key, bytes) = parse_length_prefixed_string(bytes)?;
+    let (val, bytes) = parse_length_prefixed_string(bytes)?;
+    Ok((Operation::Aux(key, val), bytes))
 }
 
 fn parse_length_prefixed_string(bytes: &[u8]) -> Result<(Vec<u8>, &[u8])> {

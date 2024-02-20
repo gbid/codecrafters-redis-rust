@@ -77,12 +77,13 @@ impl Opcode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum Operation {
     Eof,
     SelectDB(u32),
     Entry(Vec<u8>, Value),
     Aux(Vec<u8>, Vec<u8>),
+    // ResizeDB(u32, u32)
 }
 
 use std::fmt;
@@ -122,27 +123,50 @@ fn parse_select_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
     Ok((Operation::SelectDB(db_number), bytes))
 }
 
+enum RdbValueType {
+    StringEncoding,
+    // TODO: the other value types
+}
+
+impl RdbValueType {
+    fn from_byte(byte: u8) -> Result<RdbValueType> {
+        match byte {
+            0 => Ok(RdbValueType::StringEncoding),
+            _ => Err(Error::RdbError("Encountered unkown value type.".to_string())),
+        }
+    }
+}
+
 fn parse_expire_time(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-    let (expires_in_raw, bytes) = bytes.split_at(u32::BITS.try_into().unwrap());
+    let (expires_in_raw, bytes) = bytes.split_at(4);
     let expires_in = u32::from_be_bytes(expires_in_raw.try_into().unwrap());
+    dbg!(&expires_in);
+    let value_type = RdbValueType::from_byte(bytes[0])?;
+    let bytes = &bytes[1..];
     let (key, bytes) = parse_length_prefixed_string(bytes)?;
-    let (val, bytes) = parse_value(bytes)?;
+    dbg!(String::from_utf8_lossy(&key));
+    let (val, bytes) = parse_value(bytes, value_type)?;
+    dbg!(String::from_utf8_lossy(&val));
     let val = Value::expiring_from_seconds(val, expires_in);
     Ok((Operation::Entry(key, val), bytes))
 }
 
 fn parse_expire_time_ms(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-    let (expires_in_raw, bytes) = bytes.split_at(u64::BITS.try_into().unwrap());
+    let (expires_in_raw, bytes) = bytes.split_at(8);
     let expires_in = u64::from_be_bytes(expires_in_raw.try_into().unwrap());
+    let value_type = RdbValueType::from_byte(bytes[0])?;
+    let bytes = &bytes[1..];
     let (key, bytes) = parse_length_prefixed_string(bytes)?;
-    let (val, bytes) = parse_value(bytes)?;
+    let (val, bytes) = parse_value(bytes, value_type)?;
     let val = Value::expiring_from_millis(val, expires_in);
     Ok((Operation::Entry(key, val), bytes))
 }
 
 fn parse_nonexpire_entry(bytes: &[u8]) -> Result<(Operation, &[u8])> {
+    let value_type = RdbValueType::from_byte(bytes[0])?;
+    let bytes = &bytes[1..];
     let (key, bytes) = parse_length_prefixed_string(bytes)?;
-    let (val, bytes) = parse_value(bytes)?;
+    let (val, bytes) = parse_value(bytes, value_type)?;
     let val = Value {
         data: val,
         expiration_time: None,
@@ -171,10 +195,9 @@ fn parse_length_prefixed_string(bytes: &[u8]) -> Result<(Vec<u8>, &[u8])> {
     Ok((data.to_vec(), bytes))
 }
 
-fn parse_value(bytes: &[u8]) -> Result<(Vec<u8>, &[u8])> {
-    match bytes[0] {
-        0 => parse_length_prefixed_string(&bytes[1..]),
-        _ => todo!(),
+fn parse_value(bytes: &[u8], value_type: RdbValueType) -> Result<(Vec<u8>, &[u8])> {
+    match value_type {
+        RdbValueType::StringEncoding => parse_length_prefixed_string(bytes),
     }
 }
 
@@ -194,3 +217,104 @@ fn parse_length(bytes: &[u8]) -> Result<(u32, &[u8])> {
         _ => unreachable!(),
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_parse_magic_number_valid() {
+        let bytes = b"REDIS0006remainderofthedata...";
+        assert_eq!(parse_magic_number(bytes).unwrap(), &bytes[5..]);
+    }
+
+    #[test]
+    fn test_parse_magic_number_invalid() {
+        let bytes = b"WRONG0006remainderofthedata...";
+        assert!(parse_magic_number(bytes).is_err());
+    }
+
+    #[test]
+    fn test_parse_rdb_version_valid() {
+        let bytes = b"0003extra_data_after_version";
+        assert_eq!(parse_rdb_version(bytes).unwrap(), &bytes[4..]);
+    }
+
+    #[test]
+    fn test_parse_rdb_version_invalid() {
+        let bytes = b"9999extra_data_after_wrong_version";
+        assert!(parse_rdb_version(bytes).is_err());
+    }
+
+    #[test]
+    fn test_parse_select_db() {
+        // FE 00 represents a SELECTDB opcode followed by a 0 database number (variable length integer)
+        let bytes = b"\xFE\x00";
+        let expected = (Operation::SelectDB(0), &b""[..]); // Assuming the operation and empty remainder
+        assert_eq!(parse_part(bytes).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_parse_aux() {
+        // FA followed by two length-prefixed strings
+        let bytes = b"\xFA\x05redis\x055.0.0"; // 'FA' opcode, 'redis' key, '5.0.0' value
+        let expected_key = b"redis".to_vec();
+        let expected_value = b"5.0.0".to_vec();
+        let expected = (Operation::Aux(expected_key, expected_value), &b""[..]);
+        assert_eq!(parse_part(bytes).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_parse_expire_time() {
+        // FD followed by a 4-byte timestamp and then a key-value pair (simplified)
+        let bytes = b"\xFD\x00\x00\x00\x05\x00\x03key\x03val"; // 'FD' opcode, 5 seconds expiration, 'key', 'val'
+        let expected_key = b"key".to_vec();
+        let expected_val = Value::expiring_from_seconds(b"val".to_vec(), 5);
+        let expected = (Operation::Entry(expected_key, expected_val), &b""[..]);
+        assert_eq!(parse_expire_time(&bytes[1..]).unwrap(), expected); // Skip first byte (opcode)
+    }
+
+    // #[test]
+    // fn test_parse_resize_db() {
+    //     // FB followed by two length-encoded sizes
+    //     let bytes = b"\xFB\x03\x04"; // 'FB' opcode, size 3 for db and 4 for expires (simple example)
+    //     let expected = (Operation::ResizeDb(3, 4), &b""[..]);
+    //     assert_eq!(parse_resize_db(&bytes[1..]).unwrap(), expected); // Skip first byte (opcode)
+    // }
+
+    #[test]
+    fn test_parse_auxiliary_field() {
+        // FA followed by two length-prefixed strings
+        let bytes = b"\xFA\x05redis\x07version\x053.2.0";
+        let expected_key = b"redis".to_vec();
+        let expected_value = b"version".to_vec();
+        let remaining = b"\x053.2.0"; // Simulate remaining data after parsing
+        let expected = (Operation::Aux(expected_key, expected_value), remaining.as_slice());
+        assert_eq!(parse_auxiliary_field(&bytes[1..]).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_parse_length_prefixed_string_simple() {
+        let bytes = b"\x03abcRemainingData";
+        let expected_str = b"abc".to_vec();
+        let expected_remaining = b"RemainingData";
+        assert_eq!(parse_length_prefixed_string(bytes).unwrap(), (expected_str, expected_remaining.as_slice()));
+    }
+    #[test]
+    fn test_parse_string_value() {
+        // Assuming '0' indicates a simple string type
+        let bytes = b"\x03abcRemainingData";
+        let expected_val = b"abc".to_vec();
+        let expected_remaining = b"RemainingData";
+        assert_eq!(parse_value(bytes, RdbValueType::StringEncoding).unwrap(), (expected_val, expected_remaining.as_slice()));
+    }
+    #[test]
+    fn test_parse_length() {
+        // 10000000 00000000 00000000 00000100
+        let bytes = b"\x80\x00\x00\x00\x04"; // Represents length 4 with encoding type 10 (32-bit length)
+        assert_eq!(parse_length(bytes).unwrap(), (4, &b""[..])); // Adjust based on actual function signature
+    }
+
+
+}
+

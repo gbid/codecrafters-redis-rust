@@ -27,6 +27,7 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug)]
+#[derive(PartialEq, Eq)]
 pub struct Value {
     data: Vec<u8>,
     expiration_time: Option<SystemTime>,

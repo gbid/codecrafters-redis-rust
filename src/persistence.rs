@@ -12,14 +12,16 @@ pub fn load_rdb_file(rdb_file_path: &Path) -> Result<Database> {
     let mut bytes: Vec<u8> = vec![];
     dbg!(rdb_file_path);
     file.read_to_end(&mut bytes).unwrap();
-    dbg!(HexSlice(&bytes));
+    // dbg!(HexSlice(&bytes));
     parse_rdb(&bytes)
 }
 
 fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
     // header
+    dbg!(HexSlice(&bytes));
     bytes = parse_magic_number(&bytes)?;
     bytes = parse_rdb_version(&bytes)?;
+    dbg!(HexSlice(&bytes));
     // parts
     let mut parts: Vec<Operation> = Vec::new();
     while !bytes.is_empty() {
@@ -29,6 +31,7 @@ fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
             break;
         }
         bytes = remaining_bytes;
+        dbg!(HexSlice(&bytes));
     }
     let entries = parts.into_iter().filter_map(|part| match part {
         Operation::Entry(key, val) => Some((key, val)),
@@ -98,7 +101,7 @@ impl<'a> fmt::Debug for HexSlice<'a> {
             if count != 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{}", byte)?;
+            write!(f, "{:02x}", byte)?;
         }
         write!(f, "]")
     }
@@ -106,8 +109,8 @@ impl<'a> fmt::Debug for HexSlice<'a> {
 
 fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
     let op = Opcode::from_byte(bytes[0]);
-    dbg!(&op);
-    dbg!(HexSlice(bytes));
+    // dbg!(&op);
+    // dbg!(HexSlice(bytes));
     let operation = match op {
         Ok(Opcode::Eof) => Ok((Operation::Eof, &bytes[1..])),
         Ok(Opcode::SelectDb) => parse_select_db(&bytes[1..]),
@@ -117,7 +120,7 @@ fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         Ok(Opcode::Aux) => parse_auxiliary_field(&bytes[1..]),
         Err(_) => parse_nonexpire_entry(bytes),
     };
-    dbg!(&operation);
+    // dbg!(&operation);
     operation
 }
 
@@ -184,10 +187,10 @@ fn parse_resize_db(_bytes: &[u8]) -> Result<(Operation, &[u8])> {
 fn parse_auxiliary_field(bytes: &[u8]) -> Result<(Operation, &[u8])> {
     let (key, bytes) = parse_length_prefixed_string(bytes)?;
     dbg!(String::from_utf8_lossy(&key));
-    dbg!(HexSlice(&bytes));
+    // dbg!(HexSlice(&bytes));
     let (val, bytes) = parse_length_prefixed_string(bytes)?;
     dbg!(String::from_utf8_lossy(&val));
-    dbg!(HexSlice(&bytes));
+    // dbg!(HexSlice(&bytes));
     Ok((Operation::Aux(key, val), bytes))
 }
 
@@ -342,6 +345,7 @@ mod test {
         expected_db.insert(b"sample".to_vec(), Value::expiring_from_seconds(b"value".to_vec(), 10));
 
         // Assertion
+        assert!(false);
         assert_eq!(result, expected_db);
     }
 }

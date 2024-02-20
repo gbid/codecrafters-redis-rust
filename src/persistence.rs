@@ -25,6 +25,9 @@ fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
     while !bytes.is_empty() {
         let (part, remaining_bytes) = parse_part(&bytes)?;
         parts.push(part);
+        if let Some(Operation::Eof) = parts.last() {
+            break;
+        }
         bytes = remaining_bytes;
     }
     let entries = parts.into_iter().filter_map(|part| match part {
@@ -183,7 +186,7 @@ fn parse_auxiliary_field(bytes: &[u8]) -> Result<(Operation, &[u8])> {
     dbg!(String::from_utf8_lossy(&key));
     dbg!(HexSlice(&bytes));
     let (val, bytes) = parse_length_prefixed_string(bytes)?;
-    dbg!(String::from_utf8_lossy(&key));
+    dbg!(String::from_utf8_lossy(&val));
     dbg!(HexSlice(&bytes));
     Ok((Operation::Aux(key, val), bytes))
 }
@@ -212,7 +215,7 @@ fn parse_length(bytes: &[u8]) -> Result<(u32, &[u8])> {
             0 => Ok((bytes[1].into(), &bytes[2..])),
             1 => Ok((u16::from_be_bytes(bytes[1..3].try_into().unwrap()).into(), &bytes[3..])),
             2 => Ok((u32::from_be_bytes(bytes[1..5].try_into().unwrap()), &bytes[5..])),
-            _ => Err(Error::RdbError("String encoded integer has unkown prefix in last 6 bits of first byte.'".to_string()))
+            _ => Err(Error::RdbError(format!("String encoded integer has unkown prefix {:02x} in last 6 bits of first byte.'", first_byte)))
         },
         _ => unreachable!(),
     }
@@ -315,5 +318,30 @@ mod test {
         assert_eq!(parse_length(bytes).unwrap(), (4, &b""[..])); // Adjust based on actual function signature
     }
 
+    #[test]
+    fn test_parse_complete_rdb_file() {
+        use std::collections::HashMap;
+        // Construct a mock RDB file content
+        // Format: <MAGIC><VERSION><AUX><DBSELECTOR><RESIZEDB><EXPIRETIME><KEY><VALUE><EOF>
+        let rdb_content = [
+            b"REDIS".to_vec(),                // Magic Number
+            b"0003".to_vec(),                // Version - for example purposes
+            b"\xFA\x03ver\x036.2".to_vec(),  // AUX field - version 6.2
+            b"\xFE\x00".to_vec(),            // Select DB 0
+            // b"\xFB\x00\x00\x00\x10\x00\x00\x00\x08".to_vec(), // RESIZEDB (simplified)
+            b"\xFD\x00\x00\x00\x0A\x00\x06sample\x05value".to_vec(), // Key with expiry
+            b"\xFF".to_vec(),                // EOF
+            b"\x00\x00\x00\x00\x00\x00\x00\x00".to_vec() // Mocked checksum (8 bytes, simplified)
+        ].concat();
 
+        // Parse the mock RDB content
+        let result = parse_rdb(&rdb_content).unwrap();
+
+        // Expected results
+        let mut expected_db = HashMap::new();
+        expected_db.insert(b"sample".to_vec(), Value::expiring_from_seconds(b"value".to_vec(), 10));
+
+        // Assertion
+        assert_eq!(result, expected_db);
+    }
 }

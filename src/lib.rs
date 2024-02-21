@@ -45,8 +45,7 @@ impl Value {
     }
 
     fn expiring_from_seconds(data: Vec<u8>,  seconds: u32) -> Value {
-        // let expiration_time = UNIX_EPOCH + Duration::from_secs(seconds.into());
-        let expiration_time = Duration::from_secs(seconds.into());
+        let expiration_time = UNIX_EPOCH + Duration::from_secs(seconds.into());
         let expiration_time = Some(expiration_time);
         Value {
             data,
@@ -55,8 +54,7 @@ impl Value {
     }
 
     fn expiring_from_millis(data: Vec<u8>, millis: u64) -> Value {
-        // let expiration_time = UNIX_EPOCH + Duration::from_millis(millis);
-        let expiration_time = Duration::from_millis(millis);
+        let expiration_time = UNIX_EPOCH + Duration::from_millis(millis);
         let expiration_time = Some(expiration_time);
         Value {
             data,
@@ -76,12 +74,12 @@ fn handle_client_connection(
         let mut buffer: Vec<u8> = vec![0; 1024];
         let bytes_read = stream.read(&mut buffer)?;
         buffer.truncate(bytes_read);
-        // dbg!(String::from_utf8_lossy(&buffer));
+        dbg!(String::from_utf8_lossy(&buffer));
         let command: RedisCommand = RedisCommand::parse_command(&buffer)?;
         let mut map = map
             .lock()
             .map_err(|_| Error::StateError("Mutex lock failed".to_string()))?;
-        // dbg!(&command);
+        dbg!(&command);
         match command {
             RedisCommand::Ping => {
                 let response = b"+PONG\r\n";
@@ -89,7 +87,7 @@ fn handle_client_connection(
             }
             RedisCommand::Echo(bytes) => {
                 let response = resp::encode_as_bulk_string(&bytes);
-                // dbg!(String::from_utf8_lossy(&response));
+                dbg!(String::from_utf8_lossy(&response));
                 stream.write_all(&response)?;
             }
             RedisCommand::Get(key_bytes) => {

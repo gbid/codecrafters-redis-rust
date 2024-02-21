@@ -160,13 +160,13 @@ impl Operation {
     fn parse_expire_time_ms(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         let (expires_in_raw, bytes) = bytes.split_at(8);
         let expires_in = u64::from_be_bytes(expires_in_raw.try_into().unwrap());
-        dbg!(expires_in);
+        // dbg!(expires_in);
         let value_type = RdbValueType::from_byte(bytes[0])?;
         let bytes = &bytes[1..];
         let (key, bytes) = parse_string_encoding(bytes)?;
         let (val, bytes) = parse_value(bytes, value_type)?;
         let entry = entry_from_key_val(key, val, Some(expires_in));
-        dbg!(&entry);
+        // dbg!(&entry);
         Ok((entry, bytes))
     }
 

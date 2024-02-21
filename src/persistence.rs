@@ -351,7 +351,7 @@ mod test {
     #[test]
     fn test_parse_expire_time() {
         // FD followed by a 4-byte timestamp and then a key-value pair (simplified)
-        let bytes = b"\xFD\x00\x00\x00\x05\x00\x03key\x03val"; // 'FD' opcode, 5 seconds expiration, 'key', 'val'
+        let bytes = b"\xFD\x05\x00\x00\x00\x00\x03key\x03val"; // 'FD' opcode, 5 seconds expiration, 'key', 'val'
         let expected_key = b"key".to_vec();
         let expected_val = Value::expiring_from_seconds(b"val".to_vec(), 5);
         let expected = (Operation::Entry(expected_key, expected_val), &b""[..]);
@@ -395,7 +395,7 @@ mod test {
     #[test]
     fn test_parse_length() {
         // 10000000 00000000 00000000 00000100
-        let bytes = b"\x80\x00\x00\x00\x04"; // Represents length 4 with encoding type 10 (32-bit length)
+        let bytes = b"\x80\x04\x00\x00\x00"; // Represents length 4 with encoding type 10 (32-bit length)
         assert_eq!(parse_length(bytes).unwrap(), (Length::Simple(4), &b""[..])); // Adjust based on actual function signature
     }
 
@@ -411,7 +411,7 @@ mod test {
             b"\xFE\x00".to_vec(),            // Select DB 0
                                              // 0100 0100 
             b"\xFB\x04\x04".to_vec(), // RESIZEDB (simplified)
-            b"\xFD\x0A\x04\x00\x00\x00\x00key1\x06value1".to_vec(), // Key with expiry
+            b"\xFD\x0A\x00\x00\x00\x00\x04key1\x06value1".to_vec(), // Key with expiry
             b"\xFC\x0A\x00\x00\x00\x00\x00\x00\x00\x00\x04key2\x06value2".to_vec(), // Key with expiry
             b"\xFC\xE8\x03\x00\x00\x00\x00\x00\x00\x00\x04key3\x06value3".to_vec(), // Key with expiry
             b"\xFF".to_vec(),                // EOF

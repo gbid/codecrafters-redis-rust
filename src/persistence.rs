@@ -34,7 +34,11 @@ fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
         dbg!(HexSlice(&bytes));
     }
     let entries = parts.into_iter().filter_map(|part| match part {
-        Operation::Entry(key, val) => Some((key, val)),
+        Operation::Entry(key, val) => {
+            dbg!(&key);
+            dbg!(&val);
+            Some((key, val))
+        }
         _ => None,
     });
     Ok(HashMap::from_iter(entries))
@@ -116,7 +120,6 @@ impl RdbValueType {
         }
     }
 }
-
 fn entry_from_key_val(key: StringEncoding, val: RdbValue, expires_in: Option<u64>) -> Operation {
     let key_raw = match key {
         StringEncoding::String(key_raw) => key_raw,
@@ -156,11 +159,13 @@ impl Operation {
     fn parse_expire_time_ms(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         let (expires_in_raw, bytes) = bytes.split_at(8);
         let expires_in = u64::from_be_bytes(expires_in_raw.try_into().unwrap());
+        dbg!(expires_in);
         let value_type = RdbValueType::from_byte(bytes[0])?;
         let bytes = &bytes[1..];
         let (key, bytes) = parse_string_encoding(bytes)?;
         let (val, bytes) = parse_value(bytes, value_type)?;
         let entry = entry_from_key_val(key, val, Some(expires_in));
+        dbg!(&entry);
         Ok((entry, bytes))
     }
 
@@ -400,8 +405,10 @@ mod test {
             b"0003".to_vec(),                // Version - for example purposes
             b"\xFA\x03ver\x036.2".to_vec(),  // AUX field - version 6.2
             b"\xFE\x00".to_vec(),            // Select DB 0
-            // b"\xFB\x00\x00\x00\x10\x00\x00\x00\x08".to_vec(), // RESIZEDB (simplified)
-            b"\xFD\x00\x00\x00\x0A\x00\x06sample\x05value".to_vec(), // Key with expiry
+                                             // 0100 0100 
+            b"\xFB\x04\x04".to_vec(), // RESIZEDB (simplified)
+            b"\xFD\x00\x00\x00\x0A\x00\x04key1\x06value1".to_vec(), // Key with expiry
+            b"\xFC\x00\x00\x00\x00\x00\x00\x00\x0A\x00\x04key2\x06value2".to_vec(), // Key with expiry
             b"\xFF".to_vec(),                // EOF
             b"\x00\x00\x00\x00\x00\x00\x00\x00".to_vec() // Mocked checksum (8 bytes, simplified)
         ].concat();
@@ -411,10 +418,11 @@ mod test {
 
         // Expected results
         let mut expected_db = HashMap::new();
-        expected_db.insert(b"sample".to_vec(), Value::expiring_from_seconds(b"value".to_vec(), 10));
+        expected_db.insert(b"key1".to_vec(), Value::expiring_from_seconds(b"value1".to_vec(), 10));
+        expected_db.insert(b"key2".to_vec(), Value::expiring_from_millis(b"value2".to_vec(), 10));
 
         // Assertion
         assert_eq!(result, expected_db);
-        // assert!(false);
+        assert!(false);
     }
 }

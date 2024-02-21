@@ -86,10 +86,10 @@ impl Opcode {
 #[derive(Debug, PartialEq, Eq)]
 enum Operation {
     Eof,
-    SelectDB(u32),
+    SelectDb(u32),
     Entry(Vec<u8>, Value),
     Aux(Vec<u8>, StringEncoding),
-    // ResizeDB(u32, u32)
+    ResizeDb(u32, u32)
 }
 
 use std::fmt;
@@ -172,8 +172,15 @@ impl Operation {
         Ok((entry_from_key_val(key, val, None), bytes))
     }
 
-    fn parse_resize_db(_bytes: &[u8]) -> Result<(Operation, &[u8])> {
-        todo!()
+    fn parse_resize_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
+        let (size_nonexpire_hashtable, bytes) = parse_length(bytes)?;
+        let (size_expire_hashtable, bytes) = parse_length(bytes)?;
+        match (size_nonexpire_hashtable, size_expire_hashtable) {
+            (Length::Simple(size_nonexpire_hashtable), Length::Simple(size_expire_hashtable)) =>
+                Ok((Operation::ResizeDb(size_nonexpire_hashtable, size_expire_hashtable), bytes)),
+            _ =>
+                Err(Error::RdbError("Encountered String encoded Integer in ResizeDb Operation".to_string())),
+        }
     }
     fn parse_auxiliary_field(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         let (key, bytes) = parse_string_encoding(bytes)?;
@@ -196,7 +203,7 @@ impl Operation {
             Length::Simple(length) => length,
             Length::StringEncoding(length) => length,
         };
-        Ok((Operation::SelectDB(db_number), bytes))
+        Ok((Operation::SelectDb(db_number), bytes))
     }
     fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         let op = Opcode::from_byte(bytes[0]);
@@ -318,7 +325,7 @@ mod test {
     fn test_parse_select_db() {
         // FE 00 represents a SELECTDB opcode followed by a 0 database number (variable length integer)
         let bytes = b"\xFE\x00";
-        let expected = (Operation::SelectDB(0), &b""[..]); // Assuming the operation and empty remainder
+        let expected = (Operation::SelectDb(0), &b""[..]); // Assuming the operation and empty remainder
         assert_eq!(Operation::parse_part(bytes).unwrap(), expected);
     }
 

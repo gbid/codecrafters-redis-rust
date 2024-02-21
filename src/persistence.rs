@@ -150,7 +150,7 @@ fn entry_from_key_val(key: StringEncoding, val: RdbValue, expires_in: Option<u64
 impl Operation {
     fn parse_expire_time(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         let (expires_in_raw, bytes) = bytes.split_at(4);
-        let expires_in = u32::from_be_bytes(expires_in_raw.try_into().unwrap());
+        let expires_in = u32::from_le_bytes(expires_in_raw.try_into().unwrap());
         dbg!(&expires_in);
         let value_type = RdbValueType::from_byte(bytes[0])?;
         let bytes = &bytes[1..];
@@ -162,7 +162,7 @@ impl Operation {
 
     fn parse_expire_time_ms(bytes: &[u8]) -> Result<(Operation, &[u8])> {
         let (expires_in_raw, bytes) = bytes.split_at(8);
-        let expires_in = u64::from_be_bytes(expires_in_raw.try_into().unwrap());
+        let expires_in = u64::from_le_bytes(expires_in_raw.try_into().unwrap());
         dbg!(expires_in);
         let value_type = RdbValueType::from_byte(bytes[0])?;
         let bytes = &bytes[1..];
@@ -257,12 +257,12 @@ fn parse_length(bytes: &[u8]) -> Result<(Length, &[u8])> {
     let msb = bytes[0] >> 6;
     match msb {
         0 => Ok((Length::Simple(first_byte.into()), &bytes[1..])),
-        1 => Ok((Length::Simple(u16::from_be_bytes([first_byte, bytes[1]]).into()), &bytes[2..])),
-        2 => Ok((Length::Simple(u32::from_be_bytes(bytes[1..5].try_into().unwrap())), &bytes[5..])),
+        1 => Ok((Length::Simple(u16::from_le_bytes([first_byte, bytes[1]]).into()), &bytes[2..])),
+        2 => Ok((Length::Simple(u32::from_le_bytes(bytes[1..5].try_into().unwrap())), &bytes[5..])),
         3 => match first_byte {
             0 => Ok((Length::StringEncoding(bytes[1].into()), &bytes[2..])),
-            1 => Ok((Length::StringEncoding(u16::from_be_bytes(bytes[1..3].try_into().unwrap()).into()), &bytes[3..])),
-            2 => Ok((Length::StringEncoding(u32::from_be_bytes(bytes[1..5].try_into().unwrap())), &bytes[5..])),
+            1 => Ok((Length::StringEncoding(u16::from_le_bytes(bytes[1..3].try_into().unwrap()).into()), &bytes[3..])),
+            2 => Ok((Length::StringEncoding(u32::from_le_bytes(bytes[1..5].try_into().unwrap())), &bytes[5..])),
             _ => Err(Error::RdbError(format!("String encoded integer has unkown prefix {:02x} in last 6 bits of first byte.'", first_byte)))
         },
         _ => unreachable!(),
@@ -411,9 +411,9 @@ mod test {
             b"\xFE\x00".to_vec(),            // Select DB 0
                                              // 0100 0100 
             b"\xFB\x04\x04".to_vec(), // RESIZEDB (simplified)
-            b"\xFD\x00\x00\x00\x0A\x00\x04key1\x06value1".to_vec(), // Key with expiry
-            b"\xFC\x00\x00\x00\x00\x00\x00\x00\x0A\x00\x04key2\x06value2".to_vec(), // Key with expiry
-            b"\xFC\x00\x00\x00\x00\x00\x00\x03\xE8\x00\x04key3\x06value3".to_vec(), // Key with expiry
+            b"\xFD\x0A\x04\x00\x00\x00\x00key1\x06value1".to_vec(), // Key with expiry
+            b"\xFC\x0A\x00\x00\x00\x00\x00\x00\x00\x00\x04key2\x06value2".to_vec(), // Key with expiry
+            b"\xFC\xE8\x03\x00\x00\x00\x00\x00\x00\x00\x04key3\x06value3".to_vec(), // Key with expiry
             b"\xFF".to_vec(),                // EOF
             b"\x00\x00\x00\x00\x00\x00\x00\x00".to_vec() // Mocked checksum (8 bytes, simplified)
         ].concat();

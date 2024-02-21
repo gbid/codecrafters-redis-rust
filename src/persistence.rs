@@ -413,6 +413,7 @@ mod test {
             b"\xFB\x04\x04".to_vec(), // RESIZEDB (simplified)
             b"\xFD\x00\x00\x00\x0A\x00\x04key1\x06value1".to_vec(), // Key with expiry
             b"\xFC\x00\x00\x00\x00\x00\x00\x00\x0A\x00\x04key2\x06value2".to_vec(), // Key with expiry
+            b"\xFC\x00\x00\x00\x00\x00\x00\x03\xE8\x00\x04key3\x06value3".to_vec(), // Key with expiry
             b"\xFF".to_vec(),                // EOF
             b"\x00\x00\x00\x00\x00\x00\x00\x00".to_vec() // Mocked checksum (8 bytes, simplified)
         ].concat();
@@ -424,9 +425,9 @@ mod test {
         let mut expected_db = HashMap::new();
         expected_db.insert(b"key1".to_vec(), Value::expiring_from_seconds(b"value1".to_vec(), 10));
         expected_db.insert(b"key2".to_vec(), Value::expiring_from_millis(b"value2".to_vec(), 10));
+        expected_db.insert(b"key3".to_vec(), Value::expiring_from_seconds(b"value3".to_vec(), 1));
 
         // Assertion
         assert_eq!(result, expected_db);
-        assert!(false);
     }
 }

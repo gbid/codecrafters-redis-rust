@@ -30,11 +30,11 @@ fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
         if let Some(Operation::Eof) = parts.last() {
             break;
         }
-        if let Some(Operation::Entry(key, val) = parts.last() {
+        if let Some(Operation::Entry(key, val)) = parts.last() {
             dbg!(HexSlice(&key));
             dbg!(HexSlice(&val.data));
             dbg!(val.expiration_time);
-            dbg!(HexSlice(&bytes));
+            dbg!(HexSlice(&remaining_bytes));
         }
         bytes = remaining_bytes;
     }

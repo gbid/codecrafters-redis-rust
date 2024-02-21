@@ -35,8 +35,9 @@ fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
     }
     let entries = parts.into_iter().filter_map(|part| match part {
         Operation::Entry(key, val) => {
-            dbg!(&key);
-            dbg!(&val);
+            dbg!(HexSlice(&key));
+            dbg!(HexSlice(&val.data));
+            dbg!(val.expiration_time);
             Some((key, val))
         }
         _ => None,

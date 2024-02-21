@@ -134,7 +134,7 @@ impl RespVal {
     }
 
     fn parse_number(raw: &[u8]) -> Result<(usize, &[u8])> {
-        dbg!(String::from_utf8_lossy(raw));
+        // dbg!(String::from_utf8_lossy(raw));
         let mut end = 0;
         while let Some(byte) = raw.get(end) {
             if byte.is_ascii_digit() {
@@ -144,7 +144,7 @@ impl RespVal {
             }
         }
         let string = String::from_utf8(raw[0..end].to_vec())?;
-        dbg!(&string);
+        // dbg!(&string);
         let number = usize::from_str(&string)
             .map_err(|err| Error::ParseError(format!("Error parsing number: {}", err)))?;
         Ok((number, &raw[end..]))

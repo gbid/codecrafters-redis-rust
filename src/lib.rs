@@ -47,7 +47,7 @@ impl Value {
     }
 
     fn expiring_from_seconds(data: Vec<u8>,  seconds: u32) -> Value {
-        let expiration_time = UNIX_EPOCH + Duration::from_secs(seconds.into()) - UNIX_EPOCH;
+        let expiration_time = UNIX_EPOCH + Duration::from_secs(seconds.into());
         let expiration_time = Some(expiration_time);
         Value {
             data,
@@ -56,7 +56,7 @@ impl Value {
     }
 
     fn expiring_from_millis(data: Vec<u8>, millis: u64) -> Value {
-        let expiration_time = UNIX_EPOCH + Duration::from_secs(seconds.into()) - UNIX_EPOCH;
+        let expiration_time = UNIX_EPOCH + Duration::from_secs(seconds.into());
         let expiration_time = Some(expiration_time);
         Value {
             data,

@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime};
 // use clap::Parser;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
+use resp::RespVal;
 
 mod command;
 mod error;
@@ -128,12 +129,21 @@ fn handle_client_connection(
                     b"dbfilename" => &config.dbfilename,
                     _ => return Err(Error::ValidationError("Wrong argument to CONFIG GET command".to_string())),
                 };
-                use resp::RespVal;
                 let key = resp::encode_as_bulk_string(&key);
                 let key = RespVal::parse_resp_value(&key)?.0;
                 let val = resp::encode_as_bulk_string(val.to_str().unwrap().as_bytes());
                 let val = RespVal::parse_resp_value(&val)?.0;
                 let response = resp::encode(&RespVal::Array(vec![key, val]));
+                stream.write_all(&response)?;
+            }
+            RedisCommand::Keys(keys_pattern) => {
+                assert!(keys_pattern.as_slice() == b"*");
+                // TODO: don't return keys with expired values here
+                let keys: Vec<RespVal> = map.keys().map(|key| {
+                    let key = resp::encode_as_bulk_string(key);
+                    RespVal::parse_resp_value(&key).expect("We encode the values ourselves").0
+                }).collect();
+                let response = resp::encode_as_array(&keys);
                 stream.write_all(&response)?;
             }
         }

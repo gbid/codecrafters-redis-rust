@@ -9,6 +9,7 @@ pub enum RedisCommand {
     Set(SetData),
     Get(Vec<u8>),
     ConfigGet(Vec<u8>),
+    Keys(Vec<u8>)
 }
 
 impl RedisCommand {
@@ -37,6 +38,10 @@ impl RedisCommand {
                         b"config" => {
                             let args = &vals[1..];
                             RedisCommand::parse_config_args(args)
+                        }
+                        b"keys" => {
+                            let args = &vals[1..];
+                            RedisCommand::parse_keys_args(args)
                         }
                         _ => Err(Error::ValidationError(format!(
                             "Unknown Command {}",
@@ -106,6 +111,19 @@ impl RedisCommand {
             }
             _ => Err(Error::ValidationError(
                     "CONFIG command requires a Bulk String with Subcommand[get| ] as first argument.".to_string(),
+            )),
+        }
+    }
+    fn parse_keys_args(args: &[RespVal]) -> Result<RedisCommand> {
+        if args.len() < 1 {
+            return Err(Error::ValidationError(
+                "KEYS command requires a Bulk String as first argument".to_string()));
+        }
+        match &args[0] {
+            RespVal::BulkString(keys_pattern) if keys_pattern.as_slice() == b"*" =>
+                Ok(RedisCommand::Keys(keys_pattern.clone())),
+            _ => Err(Error::ValidationError(
+                    format!("Keys command got unkown argument"),
             )),
         }
     }

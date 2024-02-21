@@ -25,6 +25,7 @@ fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
     // parts
     let mut parts: Vec<Operation> = Vec::new();
     while !bytes.is_empty() {
+        dbg!(HexSlice(&bytes));
         let (part, remaining_bytes) = Operation::parse_part(&bytes)?;
         parts.push(part);
         if let Some(Operation::Eof) = parts.last() {
@@ -34,10 +35,10 @@ fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
             dbg!(String::from_utf8_lossy(&key));
             dbg!(String::from_utf8_lossy(&val.data));
             dbg!(val.expiration_time);
-            dbg!(HexSlice(&remaining_bytes));
         }
         bytes = remaining_bytes;
     }
+    dbg!(HexSlice(&bytes));
     let entries = parts.into_iter().filter_map(|part| match part {
         Operation::Entry(key, val) => {
             Some((key, val))

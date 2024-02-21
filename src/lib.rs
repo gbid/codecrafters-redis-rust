@@ -37,8 +37,8 @@ pub struct Value {
 impl Value {
     fn move_out_data_if_valid(self) -> Option<Vec<u8>> {
         // TODO: use Option::take_if once it is in stable Rust
-        dbg!(format!("{}", self.expiration_time));
-        dbg!(format!("{}", SystemTime::now()));
+        dbg!(self.expiration_time);
+        dbg!(SystemTime::now());
         match self.expiration_time {
             None => Some(self.data),
             Some(expiration_time) if expiration_time > SystemTime::now() => Some(self.data),

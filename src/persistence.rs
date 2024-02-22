@@ -45,14 +45,14 @@ fn parse_rdb(input: &[u8]) -> IResult<&[u8], Database> {
     Ok((input, database))
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RedisMagicNumber;
 fn parse_magic_number(input: &[u8]) -> IResult<&[u8], RedisMagicNumber> {
     value(RedisMagicNumber, bytes::tag(b"REDIS"))
         (input)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RdbVersion {
     V0001,
     V0002,
@@ -245,8 +245,8 @@ fn parse_string_encoding(input: &[u8]) -> IResult<&[u8], StringEncoding> {
 fn parse_length(input: &[u8]) -> IResult<&[u8], Length> {
     let (input, first_byte) = bytes::take(1usize)(input)?;
     let first_byte = first_byte[0];
-    let upper_two_bits = first_byte & 0b00111111;
-    let lower_six_bits = first_byte & 0b11000000;
+    let upper_two_bits = first_byte >> 6;
+    let lower_six_bits = first_byte & 0b00111111;
     let (input, length) = match upper_two_bits {
         0 =>
             (input, Length::Simple(lower_six_bits.into())),
@@ -319,7 +319,7 @@ mod test {
     #[test]
     fn test_parse_magic_number_valid() {
         let bytes = b"REDIS0006remainderofthedata...";
-        assert_eq!(parse_magic_number(bytes).unwrap(), &bytes[5..]);
+        assert_eq!(parse_magic_number(bytes).unwrap(), (&bytes[5..], RedisMagicNumber));
     }
 
     #[test]
@@ -331,7 +331,7 @@ mod test {
     #[test]
     fn test_parse_rdb_version_valid() {
         let bytes = b"0003extra_data_after_version";
-        assert_eq!(parse_rdb_version(bytes).unwrap(), &bytes[4..]);
+        assert_eq!(parse_rdb_version(bytes).unwrap(), (&bytes[4..], RdbVersion::V0003));
     }
 
     #[test]
@@ -344,7 +344,7 @@ mod test {
     fn test_parse_select_db() {
         // FE 00 represents a SELECTDB opcode followed by a 0 database number (variable length integer)
         let bytes = b"\xFE\x00";
-        let expected = (Operation::SelectDb(0), &b""[..]); // Assuming the operation and empty remainder
+        let expected = (&b""[..], Operation::SelectDb(0)); // Assuming the operation and empty remainder
         assert_eq!(Operation::parse_part(bytes).unwrap(), expected);
     }
 
@@ -354,7 +354,7 @@ mod test {
         let bytes = b"\xFA\x05redis\x055.0.0"; // 'FA' opcode, 'redis' key, '5.0.0' value
         let expected_key = b"redis".to_vec();
         let expected_value = StringEncoding::String(b"5.0.0".to_vec());
-        let expected = (Operation::Aux(expected_key, expected_value), &b""[..]);
+        let expected = (&b""[..], Operation::Aux(expected_key, expected_value));
         assert_eq!(Operation::parse_part(bytes).unwrap(), expected);
     }
 
@@ -364,7 +364,7 @@ mod test {
         let bytes = b"\xFD\x05\x00\x00\x00\x00\x03key\x03val"; // 'FD' opcode, 5 seconds expiration, 'key', 'val'
         let expected_key = b"key".to_vec();
         let expected_val = Value::expiring_from_millis(b"val".to_vec(), 5000);
-        let expected = (Operation::Entry(expected_key, expected_val), &b""[..]);
+        let expected = (&b""[..], Operation::Entry(expected_key, expected_val));
         assert_eq!(Operation::parse_expire_time(&bytes[1..]).unwrap(), expected); // Skip first byte (opcode)
     }
 
@@ -383,7 +383,7 @@ mod test {
         let expected_key = b"redis".to_vec();
         let expected_value = StringEncoding::String(b"version".to_vec());
         let remaining = b"\x053.2.0"; // Simulate remaining data after parsing
-        let expected = (Operation::Aux(expected_key, expected_value), remaining.as_slice());
+        let expected = (remaining.as_slice(), Operation::Aux(expected_key, expected_value));
         assert_eq!(Operation::parse_auxiliary_field(&bytes[1..]).unwrap(), expected);
     }
 
@@ -392,7 +392,7 @@ mod test {
         let bytes = b"\x03abcRemainingData";
         let expected_str = StringEncoding::String(b"abc".to_vec());
         let expected_remaining = b"RemainingData";
-        assert_eq!(parse_string_encoding(bytes).unwrap(), (expected_str, expected_remaining.as_slice()));
+        assert_eq!(parse_string_encoding(bytes).unwrap(), (expected_remaining.as_slice(), expected_str));
     }
     #[test]
     fn test_parse_string_value() {
@@ -400,13 +400,13 @@ mod test {
         let bytes = b"\x03abcRemainingData";
         let expected_val = RdbValue::StringEncoding(StringEncoding::String(b"abc".to_vec()));
         let expected_remaining = b"RemainingData";
-        assert_eq!(parse_value(bytes, RdbValueType::StringEncoding).unwrap(), (expected_val, expected_remaining.as_slice()));
+        assert_eq!(parse_value(bytes, RdbValueType::StringEncoding).unwrap(), (expected_remaining.as_slice(), expected_val));
     }
     #[test]
     fn test_parse_length() {
-        // 10000000 00000000 00000000 00000100
+        // 10000000 00100000 00000000 00000000
         let bytes = b"\x80\x04\x00\x00\x00"; // Represents length 4 with encoding type 10 (32-bit length)
-        assert_eq!(parse_length(bytes).unwrap(), (Length::Simple(4), &b""[..])); // Adjust based on actual function signature
+        assert_eq!(parse_length(bytes).unwrap(), (&b""[..], Length::Simple(4))); // Adjust based on actual function signature
     }
 
     #[test]
@@ -414,6 +414,7 @@ mod test {
         use std::collections::HashMap;
         // Construct a mock RDB file content
         // Format: <MAGIC><VERSION><AUX><DBSELECTOR><RESIZEDB><EXPIRETIME><KEY><VALUE><EOF>
+        let dummy_checksum = b"\x00\x00\x00\x00\x00\x00\x00\x00";
         let rdb_content = [
             b"REDIS".to_vec(),                // Magic Number
             b"0003".to_vec(),                // Version - for example purposes
@@ -425,7 +426,7 @@ mod test {
             b"\xFC\x0A\x00\x00\x00\x00\x00\x00\x00\x00\x04key2\x06value2".to_vec(), // Key with expiry
             b"\xFC\xE8\x03\x00\x00\x00\x00\x00\x00\x00\x04key3\x06value3".to_vec(), // Key with expiry
             b"\xFF".to_vec(),                // EOF
-            b"\x00\x00\x00\x00\x00\x00\x00\x00".to_vec() // Mocked checksum (8 bytes, simplified)
+            dummy_checksum.to_vec(), // Mocked checksum (8 bytes, simplified)
         ].concat();
 
         // Parse the mock RDB content
@@ -433,11 +434,10 @@ mod test {
 
         // Expected results
         let mut expected_db = HashMap::new();
-        expected_db.insert(b"key1".to_vec(), Value::expiring_from_seconds(b"value1".to_vec(), 10));
+        expected_db.insert(b"key1".to_vec(), Value::expiring_from_millis(b"value1".to_vec(), 10000));
         expected_db.insert(b"key2".to_vec(), Value::expiring_from_millis(b"value2".to_vec(), 10));
-        expected_db.insert(b"key3".to_vec(), Value::expiring_from_seconds(b"value3".to_vec(), 1));
-
+        expected_db.insert(b"key3".to_vec(), Value::expiring_from_millis(b"value3".to_vec(), 1000));
         // Assertion
-        assert_eq!(result, expected_db);
+        assert_eq!(result, (dummy_checksum.as_slice(), expected_db));
     }
 }

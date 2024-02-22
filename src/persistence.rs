@@ -31,9 +31,10 @@ fn parse_rdb(input: &[u8]) -> IResult<&[u8], Database> {
     todo!()
 }
 
-
-fn parse_magic_number(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    bytes::tag(b"REDIS")
+#[derive(Clone, Copy)]
+struct RedisMagicNumber;
+fn parse_magic_number(input: &[u8]) -> IResult<&[u8], RedisMagicNumber> {
+    value(RedisMagicNumber, bytes::tag(b"REDIS"))
         (input)
 }
 

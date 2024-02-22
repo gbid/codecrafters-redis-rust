@@ -48,7 +48,6 @@ fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
     Ok(HashMap::from_iter(entries))
 }
 
-
 fn parse_magic_number(bytes: &[u8]) -> Result<&[u8]> {
     let (magic_number, bytes) = bytes.split_at(5);
     if magic_number == b"REDIS" {

@@ -26,63 +26,14 @@ pub fn load_rdb_file(rdb_file_path: &Path) -> Result<Database> {
     parse_rdb(&bytes)
 }
 
-fn parse_rdb(mut bytes: &[u8]) -> Result<Database> {
-    // header
-    dbg!(HexSlice(&bytes));
-    bytes = parse_magic_number(&bytes)?;
-    bytes = parse_rdb_version(&bytes)?;
-    dbg!(HexSlice(&bytes));
-    // parts
-    let mut parts: Vec<Operation> = Vec::new();
-    while !bytes.is_empty() {
-        dbg!(HexSlice(&bytes));
-        let (part, remaining_bytes) = Operation::parse_part(&bytes)?;
-        parts.push(part);
-        if let Some(Operation::Eof) = parts.last() {
-            break;
-        }
-        if let Some(Operation::Entry(key, val)) = parts.last() {
-            dbg!(String::from_utf8_lossy(&key));
-            dbg!(String::from_utf8_lossy(&val.data));
-            dbg!(val.expiration_time);
-        }
-        bytes = remaining_bytes;
-    }
-    dbg!(HexSlice(&bytes));
-    let entries = parts.into_iter().filter_map(|part| match part {
-        Operation::Entry(key, val) => {
-            Some((key, val))
-        }
-        _ => None,
-    });
-    Ok(HashMap::from_iter(entries))
-}
-
 fn nom_parse_rdb(input: &[u8]) -> IResult<&[u8], Database> {
     todo!()
 }
 
-fn parse_magic_number(bytes: &[u8]) -> Result<&[u8]> {
-    let (magic_number, bytes) = bytes.split_at(5);
-    if magic_number == b"REDIS" {
-        Ok(bytes)
-    } else {
-        Err(Error::RdbError("RDB file did not start with Magic Number 'REDIS'".to_string()))
-    }
-}
 
 fn nom_parse_magic_number(input: &[u8]) -> IResult<&[u8], &[u8]> {
     bytes::tag(b"REDIS")
         (input)
-}
-
-fn parse_rdb_version(bytes: &[u8]) -> Result<&[u8]> {
-    let (rdb_version, bytes) = bytes.split_at(4);
-    if rdb_version == b"0003" {
-        Ok(bytes)
-    } else {
-        Err(Error::RdbError("Encountered Unknown RDB version".to_string()))
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -201,47 +152,16 @@ fn entry_from_key_val(key: StringEncoding, val: RdbValue, expires_in: Option<u64
     };
     entry
 }
+
 impl Operation {
-    fn parse_expire_time(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-        let (expires_in_raw, bytes) = bytes.split_at(4);
-        let expires_in = u32::from_le_bytes(expires_in_raw.try_into().unwrap());
-        dbg!(&expires_in);
-        let value_type = RdbValueType::from_byte(bytes[0])?;
-        let bytes = &bytes[1..];
-        let (key, bytes) = parse_string_encoding(bytes)?;
-        let (rdb_val, bytes) = parse_value(bytes, value_type)?;
-        let entry = entry_from_key_val(key, rdb_val, Some(u64::from(expires_in)*1000));
-        Ok((entry, bytes))
-    }
     fn nom_parse_expire_time(input: &[u8]) -> IResult<&[u8], Operation> {
         let (input, expires_in) = le_u32(input)?;
         let expires_in_millis = u64::from(expires_in) * 1000;
         Operation::nom_parse_entry_after_expiry(input, Some(expires_in_millis))
     }
-
-    fn parse_expire_time_ms(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-        let (expires_in_raw, bytes) = bytes.split_at(8);
-        let expires_in = u64::from_le_bytes(expires_in_raw.try_into().unwrap());
-        dbg!(expires_in);
-        let value_type = RdbValueType::from_byte(bytes[0])?;
-        let bytes = &bytes[1..];
-        let (key, bytes) = parse_string_encoding(bytes)?;
-        let (val, bytes) = parse_value(bytes, value_type)?;
-        let entry = entry_from_key_val(key, val, Some(expires_in));
-        // dbg!(&entry);
-        Ok((entry, bytes))
-    }
     fn nom_parse_expire_time_ms(input: &[u8]) -> IResult<&[u8], Operation> {
         let (input, expires_in) = le_u64(input)?;
         Operation::nom_parse_entry_after_expiry(input, Some(expires_in))
-    }
-
-    fn parse_nonexpire_entry(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-        let value_type = RdbValueType::from_byte(bytes[0])?;
-        let bytes = &bytes[1..];
-        let (key, bytes) = parse_string_encoding(bytes)?;
-        let (val, bytes) = parse_value(bytes, value_type)?;
-        Ok((entry_from_key_val(key, val, None), bytes))
     }
     fn nom_parse_nonexpire_entry(input: &[u8]) -> IResult<&[u8], Operation> {
         Operation::nom_parse_entry_after_expiry(input, None)
@@ -251,17 +171,6 @@ impl Operation {
         let (input, key) = nom_parse_string_encoding(input)?;
         let (input, val) = nom_parse_value(input, value_type)?;
         Ok((input, entry_from_key_val(key, val, None)))
-    }
-
-    fn parse_resize_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-        let (size_nonexpire_hashtable, bytes) = parse_length(bytes)?;
-        let (size_expire_hashtable, bytes) = parse_length(bytes)?;
-        match (size_nonexpire_hashtable, size_expire_hashtable) {
-            (Length::Simple(size_nonexpire_hashtable), Length::Simple(size_expire_hashtable)) =>
-                Ok((Operation::ResizeDb(size_nonexpire_hashtable, size_expire_hashtable), bytes)),
-            _ =>
-                Err(Error::RdbError("Encountered String encoded Integer in ResizeDb Operation".to_string())),
-        }
     }
     fn nom_parse_resize_db(input: &[u8]) -> IResult<&[u8], Operation> {
         let (input, (size_nonexpire_hashtable, size_expire_hashtable)) = tuple((
@@ -273,22 +182,6 @@ impl Operation {
                 Ok((input, Operation::ResizeDb(size_nonexpire_hashtable, size_expire_hashtable))),
             _ =>
                 Err(nom::Err::Error(nom::error::make_error(input, nom::error::ErrorKind::Tag))),
-        }
-    }
-
-    fn parse_auxiliary_field(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-        let (key, bytes) = parse_string_encoding(bytes)?;
-        match key {
-            StringEncoding::Integer(num) =>
-                return Err(Error::RdbError(format!("Encountered String encoded Integer {} as auxiliary key.", num))),
-            StringEncoding::String(key_string) => {
-                dbg!(String::from_utf8_lossy(&key_string));
-                // dbg!(HexSlice(&bytes));
-                let (val, bytes) = parse_string_encoding(bytes)?;
-                // dbg!(String::from_utf8_lossy(&val));
-                // dbg!(HexSlice(&bytes));
-                Ok((Operation::Aux(key_string, val), bytes))
-            }
         }
     }
     fn nom_parse_auxiliary_field(input: &[u8]) -> IResult<&[u8], Operation> {
@@ -305,15 +198,6 @@ impl Operation {
             }
         }
     }
-
-    fn parse_select_db(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-        let (db_number, bytes) = parse_length(bytes)?;
-        let db_number = match db_number {
-            Length::Simple(length) => length,
-            Length::StringEncoding(length) => length,
-        };
-        Ok((Operation::SelectDb(db_number), bytes))
-    }
     fn nom_parse_select_db(input: &[u8]) -> IResult<&[u8], Operation> {
         let (input, db_number) = nom_parse_length(input)?;
         let db_number = match db_number {
@@ -321,23 +205,6 @@ impl Operation {
             Length::StringEncoding(length) => length,
         };
         Ok((input, Operation::SelectDb(db_number)))
-    }
-
-    fn parse_part(bytes: &[u8]) -> Result<(Operation, &[u8])> {
-        let op = Opcode::from_byte(bytes[0]);
-        // dbg!(&op);
-        // dbg!(HexSlice(bytes));
-        let operation = match op {
-            Ok(Opcode::Eof) => Ok((Operation::Eof, &bytes[1..])),
-            Ok(Opcode::SelectDb) => Operation::parse_select_db(&bytes[1..]),
-            Ok(Opcode::ExpireTime) => Operation::parse_expire_time(&bytes[1..]),
-            Ok(Opcode::ExpireTimeMS) => Operation::parse_expire_time_ms(&bytes[1..]),
-            Ok(Opcode::ResizeDb) => Operation::parse_resize_db(&bytes[1..]),
-            Ok(Opcode::Aux) => Operation::parse_auxiliary_field(&bytes[1..]),
-            Err(_) => Operation::parse_nonexpire_entry(bytes),
-        };
-        // dbg!(&operation);
-        operation
     }
     fn nom_parse_part<'a>(input: &'a[u8]) -> IResult<&'a[u8], Operation> {
         let opcode_parser = |input: &'a[u8]| -> IResult<&'a[u8], Operation> {
@@ -359,31 +226,12 @@ impl Operation {
     }
 }
 
-fn parse_value(bytes: &[u8], value_type: RdbValueType) -> Result<(RdbValue, &[u8])> {
-    match value_type {
-        RdbValueType::StringEncoding => {
-            let (string_encoding, bytes) = parse_string_encoding(bytes)?;
-            Ok((RdbValue::StringEncoding(string_encoding), bytes))
-        }
-    }
-}
 fn nom_parse_value(input: &[u8], value_type: RdbValueType) -> IResult<&[u8], RdbValue> {
     match value_type {
         RdbValueType::StringEncoding => {
             let (input, string_encoding) = nom_parse_string_encoding(input)?;
             Ok((input, RdbValue::StringEncoding(string_encoding)))
         }
-    }
-}
-
-fn parse_string_encoding(bytes: &[u8]) -> Result<(StringEncoding, &[u8])> {
-    let (length, bytes) = parse_length(bytes)?;
-    match length {
-        Length::Simple(length) => {
-            let (data, bytes) = bytes.split_at(length.try_into().unwrap());
-            Ok((StringEncoding::String(data.to_vec()), bytes))
-        }
-        Length::StringEncoding(num) => Ok((StringEncoding::Integer(num), bytes)),
     }
 }
 fn nom_parse_string_encoding(input: &[u8]) -> IResult<&[u8], StringEncoding> {
@@ -394,23 +242,6 @@ fn nom_parse_string_encoding(input: &[u8]) -> IResult<&[u8], StringEncoding> {
             Ok((input, StringEncoding::String(data.to_vec())))
         }
         Length::StringEncoding(num) => Ok((input, StringEncoding::Integer(num))),
-    }
-}
-
-fn parse_length(bytes: &[u8]) -> Result<(Length, &[u8])> {
-    let first_byte = bytes[0] & 0b00111111;
-    let msb = bytes[0] >> 6;
-    match msb {
-        0 => Ok((Length::Simple(first_byte.into()), &bytes[1..])),
-        1 => Ok((Length::Simple(u16::from_le_bytes([first_byte, bytes[1]]).into()), &bytes[2..])),
-        2 => Ok((Length::Simple(u32::from_le_bytes(bytes[1..5].try_into().unwrap())), &bytes[5..])),
-        3 => match first_byte {
-            0 => Ok((Length::StringEncoding(bytes[1].into()), &bytes[2..])),
-            1 => Ok((Length::StringEncoding(u16::from_le_bytes(bytes[1..3].try_into().unwrap()).into()), &bytes[3..])),
-            2 => Ok((Length::StringEncoding(u32::from_le_bytes(bytes[1..5].try_into().unwrap())), &bytes[5..])),
-            _ => Err(Error::RdbError(format!("String encoded integer has unkown prefix {:02x} in last 6 bits of first byte.'", first_byte)))
-        },
-        _ => unreachable!(),
     }
 }
 fn nom_parse_length(input: &[u8]) -> IResult<&[u8], Length> {

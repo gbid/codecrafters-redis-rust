@@ -11,6 +11,7 @@ use nom::{
     number::complete::{ le_u8, le_u16, le_u32, le_u64 },
     branch::alt,
     sequence::tuple,
+    multi::many_till,
 };
 
 
@@ -28,10 +29,23 @@ pub fn load_rdb_file(rdb_file_path: &Path) -> Result<Database> {
 }
 
 fn parse_rdb(input: &[u8]) -> IResult<&[u8], Database> {
-    todo!()
+    let (input, _) = parse_magic_number(input)?;
+    let (input, _) = parse_rdb_version(input)?;
+    let (input, (operations, _)) =
+        many_till(Operation::parse_part, bytes::tag(&[0xFF]))(input)?;
+    let mut database = Database::new();
+    for operation in operations {
+        match operation {
+            Operation::Entry(key, val) => {
+                database.insert(key, val);
+            }
+            _ => (),
+        }
+    }
+    Ok((input, database))
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct RedisMagicNumber;
 fn parse_magic_number(input: &[u8]) -> IResult<&[u8], RedisMagicNumber> {
     value(RedisMagicNumber, bytes::tag(b"REDIS"))
@@ -108,13 +122,6 @@ impl<'a> fmt::Debug for HexSlice<'a> {
 
 
 impl RdbValueType {
-    fn from_byte(byte: u8) -> Result<RdbValueType> {
-        match byte {
-            0 => Ok(RdbValueType::StringEncoding),
-            _ => Err(Error::RdbError("Encountered unkown value type.".to_string())),
-        }
-    }
-
     fn parse(input: &[u8]) -> IResult<&[u8], RdbValueType> {
         value(RdbValueType::StringEncoding, bytes::tag(b"\0"))
             (input)
@@ -161,7 +168,7 @@ impl Operation {
         let (input, value_type) = RdbValueType::parse(input)?;
         let (input, key) = parse_string_encoding(input)?;
         let (input, val) = parse_value(input, value_type)?;
-        Ok((input, entry_from_key_val(key, val, None)))
+        Ok((input, entry_from_key_val(key, val, expires_in)))
     }
     fn parse_resize_db(input: &[u8]) -> IResult<&[u8], Operation> {
         let (input, (size_nonexpire_hashtable, size_expire_hashtable)) = tuple((
@@ -178,7 +185,7 @@ impl Operation {
     fn parse_auxiliary_field(input: &[u8]) -> IResult<&[u8], Operation> {
         let (input, key) = parse_string_encoding(input)?;
         match key {
-            StringEncoding::Integer(num) =>
+            StringEncoding::Integer(_) =>
                 Err(nom::Err::Error(nom::error::make_error(input, nom::error::ErrorKind::Tag))),
             StringEncoding::String(key_string) => {
                 dbg!(String::from_utf8_lossy(&key_string));
@@ -356,7 +363,7 @@ mod test {
         // FD followed by a 4-byte timestamp and then a key-value pair (simplified)
         let bytes = b"\xFD\x05\x00\x00\x00\x00\x03key\x03val"; // 'FD' opcode, 5 seconds expiration, 'key', 'val'
         let expected_key = b"key".to_vec();
-        let expected_val = Value::expiring_from_seconds(b"val".to_vec(), 5);
+        let expected_val = Value::expiring_from_millis(b"val".to_vec(), 5000);
         let expected = (Operation::Entry(expected_key, expected_val), &b""[..]);
         assert_eq!(Operation::parse_expire_time(&bytes[1..]).unwrap(), expected); // Skip first byte (opcode)
     }
